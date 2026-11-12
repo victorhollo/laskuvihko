@@ -1532,12 +1532,15 @@ document.addEventListener('keydown', e => {
   clearSel();
 }, true);
 
+// the browser keeps ⌘T, ⌘⇧T and ⌘N for itself: on the web they are ⌃ (Mac) or Alt (Windows) instead
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+const webAlt = !native && !isMac;
 document.addEventListener('keydown', e => {
-  const m = e.metaKey || e.ctrlKey;
+  const m = e.metaKey || e.ctrlKey || (webAlt && e.altKey);
   if (!m) return;
-  const k = e.key.toLowerCase();
+  const k = webAlt && e.altKey && /^Key/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
   const map = {enter: 'calc', e: 'addMath', t: 'addText', g: 'addGraph', l: 'approx', r: 'solve', d: 'diff', b: 'bold'};
-  if (!native) Object.assign(map, {s: 'save', o: 'open', p: 'print'});
+  if (!native) Object.assign(map, {s: 'save', o: 'open', p: 'print', n: 'new'});
   if (e.shiftKey && k === 's' && !native) { e.preventDefault(); return commands.saveAs(); }
   if (e.shiftKey && k === 'i') { e.preventDefault(); return commands.addImage(); }
   if (e.shiftKey && k === 'p') { e.preventDefault(); return commands.addDraw(); }
@@ -1556,6 +1559,7 @@ document.addEventListener('click', e => {
 });
 
 buildPalette();
+if (!native) for (const b of document.querySelectorAll('[title]')) b.title = b.title.replace(/⌘(⇧?)([TN])\b/g, (_, sh, c) => isMac ? '⌃' + sh + c : 'Alt+' + (sh ? 'Shift+' : '') + c);
 if (native) { doc = blank(); render(); post({cmd: 'ready'}); }
 else {
   let saved = null; try { saved = localStorage.getItem('laskuvihko'); } catch {}
