@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<title>Laskuvihko</title>
+<link rel="stylesheet" href="style.css">
+<script>try { const t = localStorage.getItem('theme') || 'auto'; document.documentElement.dataset.theme = t === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'apple') : t; } catch (e) {}</script>
+<script src="vendor/nerdamer.min.js"></script>
+<script src="vendor/mathlive.min.js"></script>
+</head>
+<body>
+<header id="toolbar">
+  <div class="group">
+    <button data-cmd="files" title="Näytä kaikki vihkot">Vihkot</button>
+    <button data-cmd="new" title="Uusi (⌘N)">Uusi</button>
+    <button data-cmd="open" title="Avaa (⌘O)">Avaa</button>
+    <button data-cmd="save" title="Tallenna (⌘S)">Tallenna</button>
+    <button data-cmd="pdf" title="Vie PDF:ksi">PDF</button>
+    <button data-cmd="shot" title="Kopioi koko sivu kuvana (⌘⇧C) – liitä sitten ⌘V">Kuvakaappaus</button>
+  </div>
+  <div class="group">
+    <button data-cmd="addText" title="Uusi tekstirivi (⌘T)">Teksti</button>
+    <button data-cmd="addMath" title="Uusi kaavarivi (⌘E)">Kaava</button>
+    <button data-cmd="addGraph" title="Uusi kuvaaja (⌘G)">Kuvaaja</button>
+    <button data-cmd="addDraw" title="Uusi piirros (⌘⇧P): muodot, sivujen pituudet, kulmat">Piirros</button>
+    <button data-cmd="addTable" title="Uusi tilastotaulukko (⌘⇧T): arvot ja frekvenssit, tulokset heti">Taulukko</button>
+    <button data-cmd="addImage" title="Lisää kuva (⌘⇧I) – myös ⌘V tai vetämällä">Kuva</button>
+  </div>
+  <div class="group" id="fmt">
+    <button data-cmd="bold" title="Lihavoi valittu teksti (⌘B)"><b>B</b></button>
+    <button class="hl" data-cmd="hlY" title="Korosta keltaisella"><i style="background:#fde68a"></i></button>
+    <button class="hl" data-cmd="hlG" title="Korosta vihreällä"><i style="background:#bbf7d0"></i></button>
+    <button class="hl" data-cmd="hlB" title="Korosta sinisellä"><i style="background:#bfdbfe"></i></button>
+    <button class="hl" data-cmd="hlP" title="Korosta pinkillä"><i style="background:#fbcfe8"></i></button>
+    <button data-cmd="unformat" title="Poista lihavointi ja korostus valitusta kohdasta">✕</button>
+  </div>
+  <div class="group">
+    <button class="primary" data-cmd="calc" title="Laske (⌘Enter)">= Laske</button>
+    <button data-cmd="approx" title="Likiarvo (⌘L)">≈ Likiarvo</button>
+    <button data-cmd="simplify">Sievennä</button>
+    <button data-cmd="solve" title="Ratkaise (⌘R)">Ratkaise</button>
+    <button data-cmd="factor">Tekijöihin</button>
+    <button data-cmd="expand">Kehitä</button>
+    <button data-cmd="diff">Derivoi</button>
+    <button data-cmd="integrate">Integroi</button>
+    <button data-cmd="steps" title="Ratkaisu tai derivaatta välivaiheineen (⌘J)">Vaiheittain</button>
+  </div>
+  <div class="group">
+    <button id="angle" data-cmd="angle" title="Kulman yksikkö">DEG</button>
+    <button data-cmd="palette" title="Symbolit">Symbolit</button>
+    <button data-cmd="tables" title="Kaavat ja taulukot (mafytaulukot.fi) sivupaneeliin">Taulukot</button>
+    <button data-cmd="search" title="Etsi kaikista vihkoista (⌘⇧F)">Haku</button>
+    <button data-cmd="theme" title="Väriteema">Teema</button>
+  </div>
+  <span id="status"></span>
+</header>
+<main>
+  <aside id="files"></aside>
+  <div id="scroll"><div id="page"><input id="title" placeholder="Nimetön" spellcheck="false"><div id="doc"></div></div></div>
+  <aside id="palette"></aside>
+  <aside id="tables"><div class="tgrip" title="Vedä leveämmäksi"></div><div class="thead"><span>Kaavat ja taulukot</span><span class="tsrc">mafytaulukot.fi</span><button data-tcmd="zout" title="Pienennä">−</button><span class="tzoom">80 %</span><button data-tcmd="zin" title="Suurenna">+</button><button data-tcmd="close" title="Sulje">✕</button></div><div class="tframe"><iframe title="Mafy-taulukot"></iframe></div></aside>
+</main>
+<script src="graph.js"></script>
+<script src="draw.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
