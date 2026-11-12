@@ -1209,6 +1209,19 @@ function jumpTo(i) {
 }
 
 let shotScroll = 0;
+// browser version: draw the page into a PNG (vendor/modern-screenshot.js, loaded on first use) and put it on the clipboard
+function webShot() {
+  shotScroll = $('#scroll').scrollTop; deactivate(); applyTheme('apple'); document.documentElement.classList.add('shot');
+  const lib = window.modernScreenshot ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'vendor/modern-screenshot.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  const blob = lib.then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+    .then(() => { const pg = $('#page'); return modernScreenshot.domToBlob(pg, {scale: 2, type: 'image/png', backgroundColor: getComputedStyle(pg).backgroundColor}); });
+  const done = msg => { document.documentElement.classList.remove('shot'); applyTheme(); $('#scroll').scrollTop = shotScroll; flash(msg); };
+  const save = () => blob.then(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = ($('#title').value || 'Nimetön') + '.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); done('Selain ei antanut kopioida, joten kuva ladattiin tiedostona'); });
+  let copy;
+  try { copy = navigator.clipboard.write([new ClipboardItem({'image/png': blob})]); } catch (e) { copy = Promise.reject(e); }
+  copy.then(() => done('Sivu kopioitu kuvana – liitä ' + (/Mac/.test(navigator.platform) ? '⌘V' : 'Ctrl+V')), () => save())
+    .catch(e => { console.warn(e); done('Kuvakaappaus epäonnistui'); });
+}
 // ---------- lihavointi ja värikorostus (valittu kohta tekstissä tai kaavassa) ----------
 function fmtTarget() {
   const a = document.activeElement;
@@ -1263,7 +1276,7 @@ const commands = {
   saveAs() { if (native) post({cmd: 'saveAs', data: serialize(), name: $('#title').value || 'Nimetön'}); else download(); },
   pdf() { document.activeElement && document.activeElement.blur(); applyTheme('apple'); if (native) post({cmd: 'pdf', name: $('#title').value || fileName || 'Nimetön'}); else { print(); applyTheme(); } },
   shot() {  // whole page as one picture on the clipboard (Mac app does the capture)
-    if (!native) { flash('Kuvakaappaus toimii Mac-sovelluksessa'); return; }
+    if (!native) return webShot();
     shotScroll = $('#scroll').scrollTop; deactivate(); applyTheme('apple'); document.documentElement.classList.add('shot');
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const r = $('#page').getBoundingClientRect(), d = document.documentElement;
