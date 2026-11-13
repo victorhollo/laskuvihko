@@ -885,6 +885,24 @@ function mathKey(e, mf, b) {
 }
 
 // ---------- calculating ----------
+// a := row below the row that uses the letter: memory only reaches rows under it, so say so
+function usedAbove(b) {
+  const m = /^\s*((?:\\[a-zA-Z]+|[a-zA-Z])(?:_\{?[a-zA-Z0-9]+\}?)?)\s*/.exec(b.latex);
+  if (!m || !/:=|\\coloneq/.test(b.latex)) return false;
+  const norm = s => s.replace(/\\(?:operatorname|text|mathrm|mathbf)\{(?:[^{}]|\{[^{}]*\})*\}/g, ' ').replace(/_\{([a-zA-Z0-9]+)\}/g, '_$1');
+  const name = norm(m[1]), greek = name[0] === '\\';
+  const esc = name.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+  const re = new RegExp((greek ? '' : '(?<![a-zA-Z\\\\_])') + esc + (/_/.test(name) ? '(?![a-zA-Z0-9])' : '(?![a-zA-Z_])'));
+  for (const x of doc.blocks) {
+    if (x === b) break;
+    if (x.type !== 'math' || !x.latex) continue;
+    let s = norm(x.latex);
+    if (!greek) s = s.replace(/\\[a-zA-Z]+/g, ' ');
+    if (re.test(s)) return true;
+  }
+  return false;
+}
+
 function calc(action, forced) {
   let b = forced || (activeId && byId(activeId));
   if (!b || b.type !== 'math') {
@@ -900,7 +918,8 @@ function calc(action, forced) {
     if (x === b) break;
     if (x.type === 'math') { try { Calc.define(x.latex); } catch {} }
   }
-  try { const r = Calc.run(action, b.latex, {v: b.v}); b.res = r.tex; b.chart = r.chart || null; b.stat = r.rows || null; b.steps = r.steps || null; b.err = null; b.act = action; b.vars = r.vars && r.vars.length > 1 ? r.vars : null; b.vsub = r.vsub || null; if (r.v) b.v = r.v; }
+  try { const r = Calc.run(action, b.latex, {v: b.v}); b.res = r.tex; b.chart = r.chart || null; b.stat = r.rows || null; b.steps = r.steps || null; b.err = null; b.act = action; b.vars = r.vars && r.vars.length > 1 ? r.vars : null; b.vsub = r.vsub || null; if (r.v) b.v = r.v;
+    if (/^\\text\{(?:muistissa|määritelty) \}/.test(b.res) && usedAbove(b)) b.res += '\\quad\\text{(vain alemmille riveille – siirrä tämä rivi ylös)}'; }
   catch (e) { b.pick = e && e.pick ? {...e.pick, act: action} : null; b.res = null; b.vars = null; b.chart = null; b.stat = null; b.steps = null; b.err = e instanceof Calc.Err ? e.message : /division by zero/i.test(String(e && e.message)) ? 'Nollalla ei voi jakaa.' : /is undefined for/i.test(String(e && e.message)) ? 'Ei määritelty tällä arvolla (esim. tan 90°).' : 'En osaa laskea tätä. Tarkista kaava.'; console.warn(e); }
   showResult(elOf(b.id), b);
   touch();
