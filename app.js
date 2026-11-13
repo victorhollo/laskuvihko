@@ -201,11 +201,59 @@ function imNext(r, dir) {
   return sib && sib.classList && sib.classList.contains('im') ? sib : null;
 }
 
+// long formulas wrap to the next line after + − = (MathLive itself keeps one line).
+// Only when the formula is wider than the paper: then the field gets class .wrap (full width).
+const OPSP = ['cmr', 'mrel', 'mbin'].map(c => `:host(.wrap) .ML__base>.ML__${c}+span:not([class])`);
+const WRAP_CSS = `:host(.wrap) .ML__container{width:100%;box-sizing:border-box}:host(.wrap) .ML__content{flex:1 1 auto;min-width:0}
+:host(.wrap) .ML__latex{white-space:normal!important;min-width:0}:host(.wrap) .ML__base{display:inline!important;white-space:nowrap!important}
+${OPSP.join(',')}{display:inline!important;width:auto!important;padding-left:.25em}
+${OPSP.map(x => x + '::after').join(',')}{content:'\\200B';white-space:normal}
+:host(:not(:focus-within)) .ML__contains-caret.ML__close,:host(:not(:focus-within)) .ML__contains-caret.ML__open,:host(:not(:focus-within)) .ML__contains-caret>.ML__close,
+:host(:not(:focus-within)) .ML__contains-caret>.ML__open,:host(:not(:focus-within)) .ML__contains-caret .ML__sqrt-sign,:host(:not(:focus-within)) .ML__contains-caret .ML__sqrt-line{color:inherit}`;
+// (last rule: MathLive colours √ and brackets around the cursor; drop the colour when the row is not being edited)
+function fitField(mf) {
+  const r = mf.shadowRoot, c = r && r.querySelector('.ML__content'), l = r && r.querySelector('.ML__latex');
+  if (!c || !l || !mf.isConnected) return;
+  mf.classList.remove('wrap');
+  if (l.scrollWidth > c.clientWidth + 1) mf.classList.add('wrap');
+}
+const fitAll = () => document.querySelectorAll('math-field.main, math-field.result').forEach(fitField);
+window.addEventListener('resize', () => { clearTimeout(fitAll.t); fitAll.t = setTimeout(fitAll, 100); });
+function wrapField(mf) {
+  // MathLive redraws the formula into .ML__content: check the width after every redraw
+  const add = () => {
+    const r = mf.shadowRoot, c = r && r.querySelector('.ML__content');
+    if (!c) return setTimeout(add, 50);
+    if (r.getElementById('wrapcss')) return;
+    const st = document.createElement('style'); st.id = 'wrapcss'; st.textContent = WRAP_CSS; r.prepend(st);
+    new MutationObserver(() => fitField(mf)).observe(c, {childList: true});
+    fitField(mf);
+  };
+  add();
+}
+
 function newMathField(latex, cls) {
   const mf = new MathfieldElement();
   mf.className = cls || '';
   mf.mathVirtualKeyboardPolicy = 'manual';
   mf.smartFence = true;
+  // the exponent stays open after a digit (2^{2x+1}); leave it with → like in L'Math
+  mf.smartSuperscript = false;
+  wrapField(mf);
+  // / with a selection: MathLive drops the ^ when the selection ends inside an exponent.
+  // Grow the selection until it holds whole pieces, then make the fraction.
+  mf.addEventListener('keydown', e => {
+    if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || mf.mode === 'latex' || mf.selectionIsCollapsed) return;
+    const v0 = mf.value, [a0, b0] = mf.selection.ranges[0].slice().sort((x, y) => x - y), L = mf.lastOffset;
+    const bad = v => /[\^_]\{\}|\\sqrt\{\}/.test(v.replace(/\\frac\{[^{}]*\}\{\\placeholder\{\}\}/, ''));
+    for (let d = 0; d <= L; d++) for (const [a, b] of [[a0, b0 + d], [a0 - d, b0], [a0 - d, b0 + d]]) {
+      if (a < 0 || b > L) continue;
+      mf.value = v0; mf.selection = {ranges: [[a, b]]};
+      mf.executeCommand(['insert', '\\frac{#@}{#?}']);
+      if (!bad(mf.value)) { e.preventDefault(); e.stopImmediatePropagation(); mf.dispatchEvent(new Event('input', {bubbles: true})); return; }
+    }
+    mf.value = v0; mf.selection = {ranges: [[a0, b0]]};
+  }, true);
 
   mf.value = latex || '';
   mf.addEventListener('focusin', () => { lastMf = mf; });
@@ -239,6 +287,7 @@ function buildMath(el, b) {
   const res = new MathfieldElement();
   res.className = 'result'; res.readOnly = true; res.tabIndex = -1;
   res.mathVirtualKeyboardPolicy = 'manual';
+  wrapField(res);
   const err = document.createElement('span');
   err.className = 'result err';
   const vs = document.createElement('span');

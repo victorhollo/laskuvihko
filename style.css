@@ -64,7 +64,7 @@ main{flex:1;display:flex;min-height:0}
 .text{flex:1;min-height:26px;padding:3px 6px;outline:0;line-height:1.55;font-size:15px;white-space:pre-wrap;word-break:break-word}
 .text:empty::before{content:attr(data-ph);color:var(--ink3)}
 .block.active .text{background:color-mix(in srgb,var(--hl) 4%,transparent);border-radius:6px}
-.mathrow{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-height:34px}
+.mathrow{min-width:0;flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-height:34px}
 math-field{color:var(--ink);font-size:19px;min-width:60px;padding:2px 6px;border-radius:6px;border:1px solid transparent;background:transparent;outline:0;--caret-color:var(--acc);--selection-background-color:var(--sel);--selection-color:var(--ink);--contains-highlight-background-color:color-mix(in srgb,var(--hl) 6%,transparent);--smart-fence-color:var(--acc2)}
 math-field::part(virtual-keyboard-toggle),math-field::part(menu-toggle){display:none}
 .block.active math-field.main{border-color:color-mix(in srgb,var(--hl) 35%,transparent);background:var(--field)}
@@ -346,3 +346,7 @@ html.shot,html.shot body{height:auto;display:block;background:var(--paper)}
 ::selection{background:var(--sel);color:inherit}
 .text [style*="background-color"]::selection{color:#1c1c1e}
 .shot ::selection{background:transparent}
+
+/* long formulas wrap inside the paper (app.js wrapField) */
+math-field.main{max-width:100%}
+math-field.wrap{flex:1 1 100%}
