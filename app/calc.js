@@ -91,6 +91,17 @@ const Calc = (() => {
   function toAscii(latex, opts = {}) {
     const useDeg = opts.rad ? false : deg;
     latex = latex.replace(/℃/g, '°C').replace(/℉/g, '°F').replace(/\\textdegree/g, '\\degree');
+    // MathLive muuttaa kirjoitetun "mod" muotoon \bmod: mod(−7,3) ja 17 mod 5 → mod-funktio
+    const NUM = '-?\\d+(?:\\{,\\}\\d+|[.,]\\d+)?';
+    latex = latex.replace(new RegExp('(' + NUM + ')\\s*\\\\[bp]?mod\\s*(' + NUM + ')', 'g'), '\\operatorname{mod}($1;$2)')
+      .replace(/\\[bp]?mod\b\s*(?=\\left\(|\()/g, '\\operatorname{mod}');
+    // suomalaisella näppäimistöllä MathLive tekee pilkusta desimaalipilkun {,}: mod(−7{,}3), max(3{,}7{,}2).
+    // Näissä funktioissa pilkku erottaa luvut, ellei ; ole käytössä (max(3{,}7;2) = 3,7 ja 2)
+    latex = (() => { let out = latex; const re = /(\\(?:max|min|gcd)|\\operatorname\{(?:mod|nCr|gcd|lcm|syt|pyj|max|min)\})\s*(\\left\(|\()/g; let m;
+      while ((m = re.exec(out))) { let d = 0, k = m.index + m[0].length - m[2].length, st = m.index + m[0].length;
+        for (; k < out.length; k++) { if (out.startsWith('\\left(', k)) { d++; k += 5; } else if (out[k] === '(') d++; else if (out.startsWith('\\right)', k) || out[k] === ')') { if (--d === 0) break; if (out[k] === '\\') k += 6; } }
+        const inner = out.slice(st, k); if (!inner.includes(';') && inner.includes('{,}') && !inner.replace(/\{,\}/g, '').includes(',')) out = out.slice(0, st) + inner.replace(/\{,\}/g, ',') + out.slice(k); }
+      return out; })();
     if (opts.units) latex = latex.replace(/[º˚]/g, '°');
     if (opts.units) latex = latex.replace(/(?:\{\}\^\{?\\circ\}?|\^\{?\\circ\}?|\\degree|°)\s*\\(?:mathrm|operatorname)\{(?:\\mathbf\{([CF])\}|([CF]))\}/g, (_, a, b) => '\\mathrm{°' + (a || b) + '}');
     const s = latex.replace(/\\placeholder\{[^}]*\}/g, () => { throw new Err('Kaavassa on tyhjä kohta.'); });
