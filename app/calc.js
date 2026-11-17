@@ -2,19 +2,33 @@
 const Calc = (() => {
   const FUNCS = {sin:1,cos:1,tan:1,cot:1,arcsin:'asin',arccos:'acos',arctan:'atan',sinh:1,cosh:1,tanh:1,
     ln:'log',lg:'log10',log:'log10',exp:1,abs:1,sqrt:1,max:1,min:1,sgn:'sign',sign:1,floor:1,ceil:1,round:1,
-    asin:1,acos:1,atan:1,arcsec:'asec',sec:1,csc:1,mod:1,nCr:1,binom:'nCr'};
+    asin:1,acos:1,atan:1,arcsec:'asec',sec:1,csc:1,mod:1,nCr:1,binom:'nCr',gcd:1,lcm:1,syt:'gcd',pyj:'lcm'};
+  // functions with several arguments: a comma between them is not a decimal comma (max(2,5) = 5);
+  // 2 = only ; separates (round(2,5) is round(2.5), round(2,345;2) = 2,35)
+  const MULTI = {max:1,min:1,mod:1,nCr:1,gcd:1,lcm:1,round:2};
   const TRIG = {sin:1,cos:1,tan:1,cot:1,sec:1,csc:1};
   const ATRIG = {asin:1,acos:1,atan:1};
-  let userFns = new Set();
+  let userFns = new Set(), userDefs = {};
   let deg = true;
+  let approxHit = false;   // Σ laskettiin desimaaleilla: vastaus ≈
 
   nerdamer.setFunction('sind',['x'],'sin(pi*x/180)');
   nerdamer.setFunction('cosd',['x'],'cos(pi*x/180)');
   nerdamer.setFunction('tand',['x'],'tan(pi*x/180)');
   nerdamer.setFunction('cotd',['x'],'cot(pi*x/180)');
+  nerdamer.setFunction('secd',['x'],'sec(pi*x/180)');
+  nerdamer.setFunction('cscd',['x'],'csc(pi*x/180)');
+  nerdamer.setFunction('nCr',['n','k'],'factorial(n)/(factorial(k)*factorial(n-k))');
   nerdamer.setFunction('asind',['x'],'asin(x)*180/pi');
   nerdamer.setFunction('acosd',['x'],'acos(x)*180/pi');
   nerdamer.setFunction('atand',['x'],'atan(x)*180/pi');
+  // jakojäännös kirjan tapaan saman merkkinen kuin jakaja: mod(−7,3) = 2 (nerdamer antoi −1)
+  try { const P = nerdamer.getCore().PARSER, F = P.functions, m0 = F.mod[0];
+    F.mod[0] = function (a, b) { const r = m0.apply(this, arguments);
+      try { if (r.isConstant() && b.isConstant() && !r.equals(0) && r.lessThan(0) !== b.lessThan(0)) return P.add(r, b.clone()); } catch {} return r; }; } catch {}
+  // round half away from zero like a calculator (nerdamer gave round(−2,5) = −2)
+  try { const P = nerdamer.getCore().PARSER, F = P.functions, r0 = F.round[0], S = nerdamer.getCore().Symbol;
+    F.round[0] = function (e, t) { if (e.isConstant() && e.lessThan(0)) return P.multiply(new S(-1), r0.call(this, P.multiply(new S(-1), e.clone()), t)); return r0.apply(this, arguments); }; } catch {}
 
   class Err extends Error {}
   // nerdamer's simplify sometimes drops a minus sign (-(b-c) became b-c): check it with test numbers
@@ -42,21 +56,28 @@ const Calc = (() => {
     N: [1, D(1, 1, -2)], J: [1, D(2, 1, -2)], W: [1, D(2, 1, -3)], Pa: [1, D(-1, 1, -2)], Hz: [1, D(0, 0, -1)], Bq: [1, D(0, 0, -1)],
     C: [1, D(0, 0, 1, 1)], V: [1, D(2, 1, -3, -1)], 'Ω': [1, D(2, 1, -3, -2)], F: [1, D(-2, -1, 4, 2)], T: [1, D(0, 1, -2, -1)],
     Wb: [1, D(2, 1, -2, -1)], H: [1, D(2, 1, -2, -2)], L: [1e-3, D(3)], l: [1e-3, D(3)], eV: [1.602176634e-19, D(2, 1, -2)],
-    Wh: [3600, D(2, 1, -2)], bar: [1e5, D(-1, 1, -2)], cal: [4.184, D(2, 1, -2)]};
-  const EXTRA = {min: [60, D(0, 0, 1)], h: [3600, D(0, 0, 1)], vrk: [86400, D(0, 0, 1)], a: [31557600, D(0, 0, 1)], t: [1000, D(0, 1)],
+    Wh: [3600, D(2, 1, -2)], Ah: [3600, D(0, 0, 1, 1)], bar: [1e5, D(-1, 1, -2)], cal: [4.184, D(2, 1, -2)]};
+  const EXTRA = {min: [60, D(0, 0, 1)], h: [3600, D(0, 0, 1)], vrk: [86400, D(0, 0, 1)], d: [86400, D(0, 0, 1)], a: [31557600, D(0, 0, 1)], t: [1000, D(0, 1)],
     '°C': [1, D(0, 0, 0, 0, 1)], '°F': [5 / 9, D(0, 0, 0, 0, 1)], atm: [101325, D(-1, 1, -2)], mmHg: [133.322387, D(-1, 1, -2)],
     ha: [1e4, D(2)], 'Å': [1e-10, D(1)], rad: [1, D()], u: [1.66053907e-27, D(0, 1)], ly: [9.4607304725808e15, D(1)], AU: [1.495978707e11, D(1)]};
   const PREFIX = [['da', 10], ['p', 1e-12], ['n', 1e-9], ['µ', 1e-6], ['u', 1e-6], ['m', 1e-3], ['c', 1e-2], ['d', 0.1], ['h', 100], ['k', 1e3], ['M', 1e6], ['G', 1e9], ['T', 1e12]];
   const NAMED = ['N', 'J', 'W', 'Pa', 'Hz', 'C', 'V', 'Ω', 'F', 'T', 'Wb', 'H'];
   const TEMP = {'°C': 1, '°F': 1, K: 1};
   const unitVars = new Set();
+  const tempVars = new Map();   // T:=80"°C → T: '°C' (the offset is used only when T alone is converted, T→"K)
+  // common derived units a student expects (Hz·m → m/s, kg/s² → N/m)
+  const NICE = [[D(1, 0, -1), () => unitTex('m') + '/' + unitTex('s')], [D(1, 0, -2), () => unitTex('m') + '/' + unitTex('s') + '^{2}'],
+    [D(0, 1, -2), () => unitTex('N') + '/' + unitTex('m')], [D(-3, 1), () => unitTex('kg') + '/' + unitTex('m') + '^{3}'],
+    [D(0, 1, -3), () => unitTex('W') + '/' + unitTex('m') + '^{2}'], [D(2, 1, -2, 0, -1), () => unitTex('J') + '/' + unitTex('K')],
+    [D(2, 0, -2, 0, -1), () => unitTex('J') + '/(' + unitTex('kg') + '\\cdot ' + unitTex('K') + ')'], [D(2, 0, -2), () => unitTex('J') + '/' + unitTex('kg')],
+    [D(3, -1, -2), () => '\\frac{' + unitTex('N') + '\\cdot ' + unitTex('m') + '^{2}}{' + unitTex('kg') + '^{2}}'], [D(3, 1, -3, -2), () => unitTex('Ω') + '\\cdot ' + unitTex('m')]];
   function lookupUnit(name) {
     if (EXTRA[name]) return EXTRA[name];
     if (BASE[name]) return BASE[name];
     for (const [p, f] of PREFIX) if (name.startsWith(p) && BASE[name.slice(p.length)]) { const u = BASE[name.slice(p.length)]; return [f * u[0], u[1]]; }
     return null;
   }
-  const unitName = raw => raw.replace(/\\(?:operatorname|mathrm|text|mathbf)\b/g, '').replace(/\\Omega/g, 'Ω').replace(/\\mu|\\micro/g, 'µ').replace(/\\degree|\^\{?\\circ\}?|\\circ/g, '°')
+  const unitName = raw => raw.replace(/\\(?:operatorname|mathrm|text|mathbf)\b/g, '').replace(/\\Omega/g, 'Ω').replace(/\\mu|\\micro/g, 'µ').replace(/\\(?:text)?degree|\^\{?\\circ\}?|\\circ|[º˚]/g, '°').replace(/℃/g, '°C').replace(/℉/g, '°F')
     .replace(/\\[,;:! ]/g, '').replace(/[\s{}\\]/g, '');
   const sciNum = f => { const [m, e] = f.toExponential().split('e'); return +e ? m + '*10^(' + (+e) + ')' : m; };
   const dimStr = d => d.map((e, k) => e ? DIMN[k] + '^(' + e + ')' : '').filter(Boolean).join('*') || '1';
@@ -69,6 +90,8 @@ const Calc = (() => {
   // ---------- LaTeX -> token list ----------
   function toAscii(latex, opts = {}) {
     const useDeg = opts.rad ? false : deg;
+    latex = latex.replace(/℃/g, '°C').replace(/℉/g, '°F').replace(/\\textdegree/g, '\\degree');
+    if (opts.units) latex = latex.replace(/[º˚]/g, '°');
     if (opts.units) latex = latex.replace(/(?:\{\}\^\{?\\circ\}?|\^\{?\\circ\}?|\\degree|°)\s*\\(?:mathrm|operatorname)\{(?:\\mathbf\{([CF])\}|([CF]))\}/g, (_, a, b) => '\\mathrm{°' + (a || b) + '}');
     const s = latex.replace(/\\placeholder\{[^}]*\}/g, () => { throw new Err('Kaavassa on tyhjä kohta.'); });
     let i = 0;
@@ -97,7 +120,7 @@ const Calc = (() => {
         while (i < s.length) {
           if (/[0-9.]/.test(s[i])) n += s[i++];
           else if (s.startsWith('{,}', i) && /[0-9]/.test(s[i+3] || '')) { n += '.'; i += 3; }
-          else if (s[i] === ',' && /[0-9]/.test(n.slice(-1)) && /[0-9]/.test(s[i+1] || '') && !opts.commaArgs) { n += '.'; i++; }
+          else if (s[i] === ',' && /[0-9]/.test(n.slice(-1)) && /[0-9]/.test(s[i+1] || '') && !opts.commaArgs && inArgs() !== 1) { n += '.'; i++; }
           else break;
         }
         out.push({t:'num', v:n}); continue;
@@ -108,7 +131,10 @@ const Calc = (() => {
         if (cmd === 'frac' || cmd === 'dfrac' || cmd === 'tfrac') { const a = readGroup(), b = readGroup();
           // d/dx written as a fraction: derivative of everything after it
           const dv = /^\s*(?:\\mathrm\{d\}|\\differentialD|d)\s*\{?([a-zA-Z])\}?\s*$/.exec(b);
-          if (/^\s*(?:\\mathrm\{d\}|\\differentialD|d)\s*$/.test(a) && dv) { const body = toAscii(s.slice(i), {...opts, rad: true}); i = s.length; if (!body) throw new Err('Kirjoita derivoitava d/dx:n perään.'); grp('diff(' + body + ',' + dv[1] + ')'); continue; } grp('(' + sub(a) + ')/(' + sub(b) + ')'); continue; }
+          if (/^\s*(?:\\mathrm\{d\}|\\differentialD|d)\s*$/.test(a) && dv) { const body = toAscii(s.slice(i), {...opts, rad: true}); i = s.length; if (!body) throw new Err('Kirjoita derivoitava d/dx:n perään.'); grp('diff(' + body + ',' + dv[1] + ')'); continue; } const pv = out[out.length - 1];
+          // mixed number 1½: a whole number right before a fraction of whole numbers
+          if (pv && pv.t === 'num' && /^\d+$/.test(pv.v) && /^\s*\d+\s*$/.test(a) && /^\s*\d+\s*$/.test(b)) { out.pop(); grp(pv.v + '+' + a.trim() + '/' + b.trim()); continue; }
+          grp('(' + sub(a) + ')/(' + sub(b) + ')'); continue; }
         if (cmd === 'sqrt') {
           let n = null;
           if (s[i] === '[') { const j = s.indexOf(']', i); n = s.slice(i + 1, j); i = j + 1; }
@@ -136,12 +162,15 @@ const Calc = (() => {
         if (cmd === 'exponentialE') { out.push({t:'var', v:'e'}); continue; }
         if (cmd === 'imaginaryI') { out.push({t:'var', v:'i'}); continue; }
         if (cmd === 'degree' || cmd === 'circ') { degMark(); continue; }
+        if (cmd === 'prime') { prime(1); continue; }
         if (cmd === 'mathrm' || cmd === 'mathit' || cmd === 'operatorname' || cmd === 'text' || cmd === 'mathbf') {
           const raw = readGroup();
           if (opts.units && cmd !== 'mathit' && cmd !== 'mathbf') {
             // letters typed one by one come as \mathrm{k}\mathrm{g}: join them
+            // (but two whole units "N""m are N·m: a known unit next to a \mathbf unit is not joined)
             let name = unitName(raw), m;
-            while ((m = /^\s*\\(?:mathrm|text|operatorname)\{((?:[^{}]|\{[^{}]*\})*)\}/.exec(s.slice(i))) && /[a-zA-ZµΩ°Å\\]/.test(m[1])) { name += unitName(m[1]); i += m[0].length; }
+            const bf = x => /^\s*\\mathbf\{/.test(x);
+            while ((m = /^\s*\\(?:mathrm|text|operatorname)\{((?:[^{}]|\{[^{}]*\})*)\}/.exec(s.slice(i))) && /[a-zA-ZµΩ°Å\\]/.test(m[1]) && !(lookupUnit(name) && (bf(raw) || bf(m[1])))) { name += unitName(m[1]); i += m[0].length; }
             const u = name && lookupUnit(name);
             if (u) { opts.units.push({name, f: u[0], d: u[1]}); grp(sciNum(u[0]) + '*' + dimStr(u[1])); continue; }
             if ((name.length > 1 || cmd === 'text') && !FUNCS[name] && name !== 'log10') throw new Err('Tuntematon yksikkö ' + name + '.');
@@ -168,12 +197,17 @@ const Calc = (() => {
         if (/^(le|ge|leq|geq|lt|gt|neq|ne|pm|mp)$/.test(cmd)) throw new Err('Merkkiä ' + ({pm:'±',mp:'∓'}[cmd] || '≤ ≥ ≠') + ' ei voi vielä laskea. Kirjoita yhtälö =-merkillä.');
         const greek = {alpha:1,beta:1,gamma:1,delta:1,theta:1,lambda:1,mu:1,phi:1,omega:1,sigma:1,rho:1,tau:1,epsilon:1,varphi:1,varepsilon:1,zeta:1,eta:1,kappa:1,nu:1,xi:1,chi:1,psi:1,vartheta:1};
         if (greek[cmd]) { out.push({t:'var', v:cmd}); continue; }
+        // ΔT, Δx, Δ\theta: one variable name
+        if (cmd === 'Delta') { const m = /^\s*(?:([a-zA-Z])|\\([a-zA-Z]+))/.exec(s.slice(i)); const g2 = m && (m[1] || (greek[m[2]] && m[2]));
+          if (g2) i += m[0].length; out.push({t:'var', v:'Delta' + (g2 || '')}); continue; }
         throw new Err('En osaa laskea merkkiä \\' + cmd + '.');
       }
       if (c === '^') {
         i++;
         const g = readGroup();
         if (/^\s*\\circ\s*$/.test(g)) { degMark(); continue; }
+        if (/^\s*(?:\\prime\s*)+$/.test(g)) { prime(g.match(/\\prime/g).length); continue; }
+        if (/^\s*\\doubleprime\s*$/.test(g)) { prime(2); continue; }
         out.push({t:'op', v:'^'}); grp(sub(g)); continue;
       }
       if (c === '_') {
@@ -190,14 +224,16 @@ const Calc = (() => {
       if (c === ')' || c === ']') { out.push({t:'rp'}); i++; continue; }
       if (c === '|') { i++; absToggle(); continue; }
       if (c === ':' && s[i+1] === '=') { out.push({t:'op', v:':='}); i += 2; continue; }
+      if (c === ':') { out.push({t:'op', v:'/'}); i++; continue; }   // koulun jakomerkki: 3,6 : 1,2
       if ('+-*/='.includes(c)) { out.push({t:'op', v:c}); i++; continue; }
       if (c === '!') { out.push({t:'fact'}); i++; continue; }
       if (c === ',') { out.push({t:'comma'}); i++; continue; }
-      if (c === ';') { out.push({t:'semi'}); i++; continue; }
-      if (c === "'") { const p = out[out.length-1]; if (p && p.t === 'var') { p.v += 'prime'; } i++; continue; }
+      if (c === ';') { out.push({t: inArgs() ? 'comma' : 'semi'}); i++; continue; }
+      if (c === "'") { let n = 0; while (s[i] === "'") { n++; i++; } prime(n); continue; }
+      if (c === '°' || c === 'º' || c === '˚') { degMark(); i++; continue; }
       throw new Err('En osaa laskea merkkiä ' + c + '.');
     }
-    return join(out, useDeg);
+    return factExact(join(out, useDeg));
 
     function absToggle() {
       const prev = out[out.length - 1];
@@ -205,8 +241,29 @@ const Calc = (() => {
       if (absStack.length && operandBefore) { absStack.pop(); out.push({t:'rp'}); }
       else { absStack.push(1); out.push({t:'func', v:'abs'}); out.push({t:'lp'}); }
     }
+    // f'(x), f''(x) of a defined function f: its derivative as a new function
+    function prime(n) {
+      const p = out[out.length - 1];
+      if (!(p && p.t === 'var')) return;
+      const base = p.v.replace(/(?:prime)+$/, ''), name = p.v + 'prime'.repeat(n);
+      p.v = name;
+      const d = userDefs[base]; if (!d || userFns.has(name)) return;
+      let body = d.body; for (let k = 0; k < name.length - base.length; k += 5) body = nerdamer('diff(' + body + ',' + d.v + ')').toString();
+      nerdamer.setFunction(name, [d.v], body);
+      nerdamer.setFunction(name + 'Qdeg', [d.v], degBody(body));
+      userFns.add(name); userDefs[name] = {v: d.v, body};
+    }
+    // inside max(…), min(…) etc.: commas and semicolons separate the arguments
+    function inArgs() {
+      let d = 0;
+      for (let k = out.length - 1; k >= 0; k--) {
+        if (out[k].t === 'rp') d++;
+        else if (out[k].t === 'lp' && d-- === 0) return out[k - 1] && out[k - 1].t === 'func' && MULTI[out[k - 1].v] || 0;
+      }
+      return false;
+    }
     function degMark() {
-      if (!useDeg) { out.push({t:'op', v:'*'}); out.push({t:'grp', v:'(pi/180)'}); }
+      if (!useDeg) out.push({t:'grp', v:'(pi/180)'});
       // in degree mode the number already means degrees
     }
     // limits and the bounds of Σ/Π: _{...} and ^{...} right after the command
@@ -222,11 +279,14 @@ const Calc = (() => {
       const [lo] = bounds();
       const m = lo && /^\s*([a-zA-Z])\s*(?:\\to|\\rightarrow|\\longrightarrow)\s*(.+)$/.exec(lo);
       if (!m) throw new Err('Kirjoita raja-arvon alle esim. x→2.');
-      let to = m[2].trim();
-      if (/\^\{?\s*[+-]\s*\}?\s*$/.test(to)) throw new Err('Toispuolisia raja-arvoja en osaa vielä laskea.');
+      let to = m[2].trim(), dir = 0;
+      // toispuolinen raja-arvo x→0⁺ / x→0⁻
+      const om = /\^\{?\s*([+-])\s*\}?\s*$/.exec(to); if (om) { dir = om[1] === '+' ? 1 : -1; to = to.slice(0, om.index).trim(); }
       to = /^[+]?\\infty$/.test(to) ? 'Infinity' : /^-\\infty$/.test(to) ? '-Infinity' : sub(to);
       const body = toAscii(s.slice(i), {...opts, rad: true}); i = s.length;
       if (!body) throw new Err('Kirjoita lauseke lim:n perään.');
+      const lg = giacLimit(body, m[1], to, dir); if (lg !== null) { grp(lg); return; }
+      if (dir) throw new Err('Toispuolisia raja-arvoja en osaa vielä laskea.');
       grp('limit(' + body + ',' + m[1] + ',' + to + ')');
     }
     function series(cmd) {
@@ -239,15 +299,26 @@ const Calc = (() => {
       if (!Number.isInteger(from)) throw new Err('Alarajan pitää olla kokonaisluku.');
       if (/^\\infty$/.test(hi.trim())) {
         if (cmd !== 'sum') throw new Err('Päättymätöntä tuloa en osaa laskea.');
+        const gs = giacEval('sum(' + toG(body) + ',' + m[1] + ',' + from + ',inf)');
+        if (gs && /infinity/.test(gs)) throw new Err('Summa hajaantuu.');
+        const g = gs && fromGiac(GR(gs)); let gn = null; try { gn = g && numeric(g); } catch {}
+        if (g && gn !== null && isFinite(gn)) { grp(g); return; }
         grp(String(infiniteSum(body, m[1], from))); return;
       }
       const to = Number(nerdamer(sub(hi)).evaluate().text('decimals'));
       if (!Number.isInteger(to)) throw new Err('Ylärajan pitää olla kokonaisluku (esim. 10), ei kirjain.');
       if (to - from > 100000) throw new Err('Summassa on liian monta termiä.');
+      // with factorials (binomial sums) the terms are written out, so each factorial is exact (nerdamer's own sum rounded them)
+      if (/factorial|!/.test(body) && to - from <= 200) { const ts = []; for (let k = from; k <= to; k++) ts.push('(' + body.replace(new RegExp('(?<![a-zA-Z_])' + m[1] + '(?![a-zA-Z_0-9])', 'g'), '(' + k + ')') + ')');
+        grp(ts.length ? factExact(ts.join(cmd === 'sum' ? '+' : '*')) : cmd === 'sum' ? '0' : '1'); return; }
+      // paljon termejä: desimaaleilla (nerdamerin tarkka lasku jumittaa); kokonaisluvut pysyvät tarkkoina
+      if (cmd === 'sum' && to - from > 1000 && !vars(body).some(u => u !== m[1])) { const f = numFn(body, m[1]);
+        if (f) { let S = 0, c = 0, whole = true; for (let k = from; k <= to; k++) { const t = f(k); if (!isFinite(t)) throw new Err('Summa hajaantuu.'); if (whole && t !== Math.round(t)) whole = false; const y = t - c, z = S + y; c = (z - S) - y; S = z; }
+          if (!(whole && Math.abs(S) < 2 ** 53)) approxHit = true; grp(String(S)); return; } }
       grp((cmd === 'sum' ? 'sum(' : 'product(') + body + ',' + m[1] + ',' + from + ',' + to + ')');
     }
     function infiniteSum(body, v, from) {
-      const f = nerdamer(body).buildFunction([v]);
+      const f = numFn(body, v) || nerdamer(body).buildFunction([v]);
       let S = 0, small = 0;
       let t = 0;
       for (let k = from; k < from + 1000000; k++) {
@@ -268,9 +339,11 @@ const Calc = (() => {
       const rest = s.slice(i);
       const m = /(?:\\[,;! ]|\s)*(?:\\mathrm\{d\}|\\differentialD|d)\s*([a-zA-Z])\s*$/.exec(rest);
       if (!m) throw new Err('Integraalista puuttuu dx.');
-      const body = sub(rest.slice(0, m.index)); const v = m[1];
+      // integraali aina radiaaneina (asteet vain, jos ne on kirjoitettu: sin 30°)
+      const body = toAscii(rest.slice(0, m.index), {...opts, rad: true}); const v = m[1];
       i = s.length;
-      if (lo !== null && hi !== null) grp('defint(' + body + ',' + sub(lo) + ',' + sub(hi) + ',' + v + ')');
+      const rb = t => toAscii(t, {...opts, rad: true});
+      if (lo !== null && hi !== null) grp(defInt(body, rb(lo), rb(hi), v));
       else grp('integrate(' + body + ',' + v + ')');
     }
   }
@@ -282,7 +355,6 @@ const Calc = (() => {
       const tok = tokens[k];
       if (tok.t !== 'func') { t.push(tok); continue; }
       let name = tok.v;
-      if (useDeg && TRIG[name]) name += 'd';
       if (useDeg && ATRIG[name]) name += 'd';
       let pow = null;
       if (tokens[k+1] && tokens[k+1].t === 'op' && tokens[k+1].v === '^' && tokens[k+2]) { pow = tokens[k+2].v; k += 2; }
@@ -292,20 +364,23 @@ const Calc = (() => {
         for (; j < tokens.length; j++) { if (tokens[j].t === 'lp') d++; else if (tokens[j].t === 'rp' && --d === 0) break; }
         argTokens = tokens.slice(k + 2, j); k = j;
       } else {
-        let j = k + 1; const a = [];
+        // the argument ends at + − = , ) and at the next function name (sin x cos x = sin(x)·cos(x));
+        // a function right at the start is nested (ln sin x), brackets inside are kept whole
+        let j = k + 1, d = 0; const a = [];
         while (j < tokens.length) {
-          const x = tokens[j];
-          if (x.t === 'op' && x.v !== '^') break;
-          if (x.t === 'comma' || x.t === 'semi' || x.t === 'rp') break;
+          const x = tokens[j], pr = a[a.length - 1];
+          if (!d && x.t === 'op' && x.v !== '^') break;
+          if (!d && (x.t === 'comma' || x.t === 'semi' || x.t === 'rp')) break;
+          if (!d && x.t === 'func' && a.some(y => y.t !== 'func') && !(pr && pr.t === 'op')) break;
+          if (x.t === 'lp') d++; else if (x.t === 'rp') d--;
           a.push(x); j++;
-          if (x.t === 'func') { // nested function without parens: take the rest
-            while (j < tokens.length && !(tokens[j].t === 'op' && tokens[j].v !== '^') && tokens[j].t !== 'rp') a.push(tokens[j++]);
-          }
         }
         if (!a.length) throw new Err('Funktiolta ' + tok.v + ' puuttuu argumentti.');
         argTokens = a; k = j - 1;
       }
       const arg = join(argTokens, useDeg);
+      // degrees, but an angle with π in it is in radians: cos π = −1 also in degree mode
+      if (useDeg && TRIG[name] && !/\bpi\b/.test(arg)) name += 'd';
       let str = tok.base ? '(log(' + arg + ')/log(' + tok.base + '))' : name + '(' + arg + ')';
       if (pow) str = '(' + str + ')^' + pow;
       t.push({t:'grp', v:str});
@@ -319,11 +394,31 @@ const Calc = (() => {
         const isCall = a.t === 'var' && b.t === 'lp' && userFns.has(a.v);
         if (!isCall) res += '*';
       }
+      // a defined function in degree mode: its degree version (f(x):=sin x, f(30) = 1/2)
+      if (useDeg && b.t === 'var' && t[k + 1] && t[k + 1].t === 'lp' && userFns.has(b.v)) { res += b.v + 'Qdeg'; continue; }
       res += b.t === 'num' || b.t === 'var' || b.t === 'grp' || b.t === 'op' ? b.v
         : b.t === 'lp' ? '(' : b.t === 'rp' ? ')' : b.t === 'fact' ? '!' : b.t === 'comma' ? ',' : b.t === 'semi' ? ';' : '';
     }
     return res;
   }
+
+  // whole-number factorials and binomials as exact digits (nerdamer gave 52!/(5!·47!) = 0 and 20!/(10!·10!) = 184755,99)
+  function factExact(s) {
+    if (!/!|factorial|nCr/.test(s)) return s;
+    const int = arg => { if (/[a-zA-Z]/.test(arg)) return null; let n; try { n = Number(nerdamer(arg).evaluate().text('decimals')); } catch { return null; } return Number.isInteger(n) && n >= 0 && n <= 170 ? n : null; };
+    const fact = n => { let r = 1n; for (let k = 2n; k <= BigInt(n); k++) r *= k; return r; };
+    const A = '((?:[^()]|\\((?:[^()]|\\([^()]*\\))*\\))*)';
+    for (let k = 0; k < 20; k++) {
+      const t = s.replace(new RegExp('factorial\\(' + A + '\\)', 'g'), (w, a) => { const n = int(a); return n === null ? w : '(' + fact(n) + ')'; })
+        .replace(/(\d+)!|\(([^()a-zA-Z]*)\)!/g, (w, a, b) => { const n = int(a || b); return n === null ? w : '(' + fact(n) + ')'; })
+        .replace(/nCr\(([^(),;]+)[,;]([^(),;]+)\)/g, (w, a, b) => { const n = int(a), q = int(b); if (n === null || q === null) return w; if (q > n) return '0';
+          let r = 1n; for (let j = 1; j <= Math.min(q, n - q); j++) r = r * BigInt(n - j + 1) / BigInt(j); return '(' + r + ')'; });
+      if (t === s) break; s = t;
+    }
+    return s;
+  }
+  // a radian expression in degree mode: sin(x) → sind(x)
+  const degBody = b => b.replace(/(^|[^a-zA-Z])(sin|cos|tan|cot|sec|csc)\(/g, '$1$2d(');
 
   // ---------- formatting ----------
   // ---------- numbers too big for the computer (over ~10^308) ----------
@@ -375,26 +470,43 @@ const Calc = (() => {
     if (Math.abs(r.l) >= 1e15) return sign + '10^{' + fmtNum(r.l) + '}';
     const E = Math.floor(r.l), m = Math.pow(10, r.l - E);
     const exp = String(Math.abs(E)).replace(/\B(?=(\d{3})+(?!\d))/g, '\\,');
-    return sign + String(parseFloat(m.toPrecision(5))).replace('.', '{,}') + '\\cdot10^{' + (E < 0 ? '-' : '') + exp + '}';
+    return sign + String(parseFloat(m.toPrecision(5))).replace('.', DEC()) + '\\cdot10^{' + (E < 0 ? '-' : '') + exp + '}';
   }
   function fmtNum(x) {
     if (!isFinite(x)) return x > 0 ? '\\infty' : x < 0 ? '-\\infty' : '\\text{ei määritelty}';
-    if (Math.abs(x) < 1e-12) return '0';
+    if (x === 0) return '0';
     let str = Math.abs(x) >= 1e12 || Math.abs(x) < 1e-6 ? x.toExponential(8).replace(/\.?0+e/, 'e') : String(parseFloat(x.toPrecision(10)));
     if (str.includes('e')) { const [m, e] = str.split('e'); str = m + '\\cdot10^{' + parseInt(e) + '}'; }
-    return str.replace(/\./g, '{,}');
+    return str.replace(/\./g, DEC());
   }
+  // desimaalimerkki kielen mukaan (suomeksi pilkku, englanniksi piste)
+  function DEC() { return typeof Kieli === 'undefined' || Kieli.pilkku ? '{,}' : '.'; }
   function tex(expr) {
     let t = nerdamer(expr).toTeX();
     t = t.replace(/(\d)\.(\d)/g, '$1{,}$2').replace(/\\mathrm\{log10\}/g, '\\lg').replace(/\\ln_\{10\}/g, "\\lg").replace(/\\mathrm\{log\}/g, '\\ln')
-      .replace(/\\mathrm\{a(sin|cos|tan)\}/g, '\\arc$1').replace(/\\mathrm\{(sin|cos|tan|cot|sinh|cosh|tanh|exp)\}/g, '\\$1').replace(/\\mathrm\{abs\}\\left\((.*?)\\right\)/g, '\\left|$1\\right|');
+      .replace(/\\mathrm\{a(sin|cos|tan)\}/g, '\\arc$1').replace(/\\mathrm\{(sin|cos|tan|cot|sinh|cosh|tanh|exp)\}/g, '\\$1').replace(/\\mathrm\{abs\}\\left\((.*?)\\right\)/g, '\\left|$1\\right|')
+      .replace(/\\(ln|lg)\\left\((\d+)\\right\)/g, '\\$1 $2');   // ln(5) → ln 5
     return t;
+  }
+  // exact fraction p/q as a decimal through BigInt (keeps 1,6·10⁻¹⁹ and 10⁻³⁰⁰; Number() of a long fraction gives 0 or NaN)
+  function ratNum(str) {
+    const m = /^\(?(-?)(\d+)(?:\/(\d+))?\)?$/.exec(String(str).replace(/\s/g, ''));
+    if (!m) return null;
+    const q = m[3] || '1', k = q.length - m[2].length + 20, P = BigInt(m[2]), Q = BigInt(q);
+    const r = k >= 0 ? P * 10n ** BigInt(k) / Q : P / (Q * 10n ** BigInt(-k));
+    return parseFloat(m[1] + r + 'e' + (-k));
   }
   function numeric(expr) {
     const v = nerdamer(expr).evaluate();
+    const ex = ratNum(v.toString()); if (ex) return ex;
     const txt = v.text('decimals');
-    if (/^-?[0-9.e+-]+$/.test(txt)) return parseFloat(txt);
-    return null;
+    let n = /^-?[0-9.e+-]+$/.test(txt) ? parseFloat(txt) : null;
+    // nerdamer can lose a result (100·0,89089^8,7 → 0) and keeps only a fixed number of decimals (√2·10⁻²⁰ → 0):
+    // check with plain decimals when the number is 0, small or missing
+    // (an exact 0 stays 0 unless the decimals clearly disagree: 0,1·3−0,3 leaves a decimal rest 5,6·10⁻¹⁷)
+    const big = ex === 0 ? Math.max(1, ...(String(expr).match(/\d+(?:\.\d+)?/g) || []).map(Number)) * 1e-9 : 0;
+    if (!n || Math.abs(n) < 1e-4) for (const e of [v.toString(), String(expr)]) { const f = jsFn(e, '__q'); if (f) { const y = f(0); if (isFinite(y) && y !== 0 && Math.abs(y) > big) { n = y; break; } } }
+    return n;
   }
   function vars(expr) { try { return nerdamer(expr).variables().filter(v => !['pi','e','i'].includes(v)); } catch { return []; } }
   function pickVar(expr, want) { const v = vars(expr); return want && v.includes(want) ? want : v.includes('x') ? 'x' : v[0] || 'x'; }
@@ -412,7 +524,7 @@ const Calc = (() => {
     });
     const ijk = new RegExp(BAR.replace('[a-zA-Z]', '[ijk]')).test(L);
     const barred = [];
-    L = L.replace(new RegExp(BAR, 'g'), (_, x) => { barred.push(x); return x; });
+    L = L.replace(new RegExp(BAR, 'g'), (_, x) => { barred.push(x); return ' ' + x + ' '; });   // välit: \cdot\overline{v} ei saa olla \cdotv
     const dm = /^\s*([a-zA-Z])\s*(?::=|\\coloneq|\\coloneqq)([\s\S]+)$/.exec(L);
     const body = dm ? dm[2] : L;
     const marks = body.replace(/\\times/g, '\\cdot Q_{999}\\cdot ').replace(/\\det|\\operatorname\{det\}/g, ' Q_{998}');
@@ -425,12 +537,23 @@ const Calc = (() => {
     const dim = /\\(?:overline|bar|vec|overrightarrow)\s*\{?\s*k/.test(latex) || barred.some(x => matVars.has(x) && matVars.get(x).m.flat().length === 3) ? 3 : 2;
     const ascii = toAscii(marks).replace(/\bd\*e\*t\*\(/g, 'Q998*(');
     const conv = rows => rows.map(r => r.map(c => S(toAscii(c || '0', action === 'approx' ? {rad: true} : {}))));
+    // vektoriyhtälö (1, t)·(3, 4) = 0 tai |(t, 3)| = 5: puolet erikseen, sitten Ratkaise (vektorit komponenteittain)
+    const eqAt = ascii.indexOf('=');
+    if (!dm && eqAt > 0 && ascii.indexOf('=', eqAt + 1) < 0 && ['solve', 'calc', 'approx'].includes(action)) {
+      const M = cells.map(conv), d0 = ijk || barred.length ? dim : 0, Lh = matEval(ascii.slice(0, eqAt), M, d0), Rh = matEval(ascii.slice(eqAt + 1), M, d0);
+      if (isMat(Lh) !== isMat(Rh)) throw ME('Yhtälön molemmilla puolilla pitää olla vektori tai molemmilla luku.');
+      const eqs = isMat(Lh) ? Lh.m.flat().map((x, k) => '(' + x + ')=(' + (Rh.m.flat()[k] ?? '0') + ')') : ['(' + Lh + ')=(' + Rh + ')'];
+      return solve(eqs.join(';'));
+    }
     const v = matEval(ascii, cells.map(conv), ijk || barred.length ? dim : 0);
     if (dm) {
       if (!isMat(v)) { matVars.delete(dm[1]); return null; }
       matVars.set(dm[1], v);
       return {tex: '\\text{muistissa } ' + (barred.includes(dm[1]) ? '\\overline{' + dm[1] + '}' : dm[1])};
     }
+    // vektorien välinen kulma arccos(…) asteina: °-merkki
+    if (!isMat(v) && deg && /^\s*a(?:sin|cos|tan)d\(/.test(ascii) && /\)\s*$/.test(ascii) && (() => { let k = 0; const t = ascii.trim(); for (let j = t.indexOf('('); j < t.length; j++) { if (t[j] === '(') k++; else if (t[j] === ')' && !--k) return j === t.length - 1; } return false; })()) {
+      const n = numeric(v); if (n !== null && isFinite(n)) return {tex: (action !== 'approx' && Math.abs(n - Math.round(n)) < 1e-9 ? '=' + fmtNum(Math.round(n)) : '\\approx ' + fmtNum(n)) + '^{\\circ}'}; }
     if (!isMat(v)) return {tex: action === 'approx' ? '\\approx ' + fmtNum(numeric(v)) : present(v)};
     const E = x => action === 'approx' ? (numeric(x) === null ? tex(x) : fmtNum(numeric(x))) : tex(x);
     const vec = v.m.length === 1 || v.m[0].length === 1, flat = v.m.flat();
@@ -548,9 +671,13 @@ const Calc = (() => {
 
   // ---------- statistics: numbers separated by ; ----------
   function statRun(latex) {
-    if (!latex.includes(';') || /[=<>]/.test(latex)) return null;
-    const parts = latex.split(';').map(p => p.replace(/\\[,;: ]|\\quad/g, '').trim()).filter(Boolean);
+    // englanniksi (desimaalipiste) luvut voi erottaa myös pilkulla: 3, 4, 4, 5, 9
+    const sep = latex.includes(';') ? ';' : DEC() === '.' && (latex.match(/,/g) || []).length >= 2 ? ',' : null;
+    if (!sep || /[=<>]/.test(latex)) return null;
+    const parts = latex.split(sep).map(p => p.replace(/\\[,;: ]|\\quad/g, '').trim()).filter(Boolean);
     if (parts.length < 2) return null;
+    // a ; inside brackets separates function arguments (max(3;7;2)), not data
+    if (parts.some(p => (p.match(/\(/g) || []).length !== (p.match(/\)/g) || []).length)) return null;
     const xs = [];
     for (const p of parts) { let a; try { a = toAscii(p); } catch { return null; } if (vars(a).length) return null; const n = numeric(a); if (n === null) return null; xs.push(n); }
     return statsOf(xs.map(x => [x, 1]));
@@ -563,23 +690,29 @@ const Calc = (() => {
     const n = cnt.reduce((a, [, c]) => a + c, 0);
     if (!n) return null;
     const sum = cnt.reduce((a, [x, c]) => a + x * c, 0), mean = sum / n;
-    const at = k => { let acc = 0; for (const [x, c] of cnt) { acc += c; if (k < acc) return x; } };
-    const med = n % 2 ? at((n - 1) / 2) : (at(n / 2 - 1) + at(n / 2)) / 2;
-    const ss = cnt.reduce((a, [x, c]) => a + c * (x - mean) ** 2, 0), sd = n > 1 ? Math.sqrt(ss / (n - 1)) : 0, sdp = Math.sqrt(ss / n);
+    // frequencies may be decimals (0,5 and 0,5): they work as weights; the sample deviation needs whole counts
+    const whole = cnt.every(([, c]) => Number.isInteger(c));
+    // median: where the running total of the counts passes half (exactly half: between this value and the next)
+    let med = cnt[cnt.length - 1][0];
+    for (let j = 0, acc = 0; j < cnt.length; j++) { acc += cnt[j][1];
+      if (Math.abs(acc - n / 2) <= 1e-9 * n && j + 1 < cnt.length) { med = (cnt[j][0] + cnt[j + 1][0]) / 2; break; }
+      if (acc > n / 2) { med = cnt[j][0]; break; } }
+    const ss = cnt.reduce((a, [x, c]) => a + c * (x - mean) ** 2, 0), sd = !whole ? null : n > 1 ? Math.sqrt(ss / (n - 1)) : 0, sdp = Math.sqrt(ss / n);
     const top = Math.max(...cnt.map(([, c]) => c)), modes = cnt.filter(([, c]) => c === top).map(([x]) => x);
-    const eq = x => (Math.abs(x - Math.round(x * 1e6) / 1e6) < 1e-12 && String(Math.round(x * 1e6) / 1e6).length < 12 ? '=' : '\\approx ') + fmtNum(parseFloat(x.toPrecision(6)));
+    const hasMode = modes.length < cnt.length || cnt.length === 1;
+    const eq = x => { const r = parseFloat(x.toPrecision(10)); return (Math.abs(x - r) <= 1e-12 * Math.max(1, Math.abs(x)) ? '=' : '\\approx ') + fmtNum(r); };
     const row = (name, sym, x) => '\\text{' + name + '}\\ ' + sym + eq(x);
     const lines = [
-      '\\text{lukuja}\\ n=' + n + ',\\quad \\text{summa}' + eq(sum),
+      '\\text{lukuja}\\ n' + (whole ? '=' + n : eq(n)) + ',\\quad \\text{summa}' + eq(sum),
       row('keskiarvo', '\\bar{x}', mean) + ',\\quad ' + row('mediaani', 'Md', med),
-      modes.length < cnt.length ? '\\text{tyyppiarvo}\\ Mo=' + modes.map(fmtNum).join(';\\ ') : '\\text{tyyppiarvo: ei ole (kaikkia yhtä monta)}',
-      row('keskihajonta', 's', sd) + '\\ \\text{(otos)},\\quad \\sigma' + eq(sdp) + '\\ \\text{(perusjoukko)}',
+      hasMode ? '\\text{tyyppiarvo}\\ Mo=' + modes.map(fmtNum).join(';\\ ') : '\\text{tyyppiarvo: ei ole (kaikkia yhtä monta)}',
+      (sd === null ? '\\text{keskihajonta}\\ ' : row('keskihajonta', 's', sd) + '\\ \\text{(otos)},\\quad ') + '\\sigma' + eq(sdp) + '\\ \\text{(perusjoukko)}',
       '\\text{pienin}\\ ' + fmtNum(cnt[0][0]) + ',\\ \\text{suurin}\\ ' + fmtNum(cnt[cnt.length - 1][0]) + ',\\quad \\text{vaihteluväli}' + eq(cnt[cnt.length - 1][0] - cnt[0][0]),
     ];
-    const pl = x => { const r = parseFloat(x.toPrecision(6)); return (Math.abs(x - r) > 1e-12 ? '≈ ' : '') + String(r).replace('.', ',').replace('-', '−'); };
-    const rows = [['Lukuja', 'n', String(n)], ['Summa', '', pl(sum)], ['Keskiarvo', 'x̄', pl(mean)], ['Mediaani', 'Md', pl(med)],
-      ['Tyyppiarvo', 'Mo', modes.length < cnt.length ? modes.map(pl).join('; ') : 'ei ole'],
-      ['Keskihajonta (otos)', 's', pl(sd)], ['Keskihajonta (perusjoukko)', 'σ', pl(sdp)],
+    const pl = x => { const r = parseFloat(x.toPrecision(10)); return (Math.abs(x - r) > 1e-12 * Math.max(1, Math.abs(x)) ? '≈ ' : '') + String(r).replace('.', DEC() === '.' ? '.' : ',').replace('-', '−'); };
+    const rows = [['Lukuja', 'n', whole ? String(n) : pl(n)], ['Summa', '', pl(sum)], ['Keskiarvo', 'x̄', pl(mean)], ['Mediaani', 'Md', pl(med)],
+      ['Tyyppiarvo', 'Mo', hasMode ? modes.map(pl).join('; ') : 'ei ole'],
+      ['Keskihajonta (otos)', 's', sd === null ? '–' : pl(sd)], ['Keskihajonta (perusjoukko)', 'σ', pl(sdp)],
       ['Pienin', '', pl(cnt[0][0])], ['Suurin', '', pl(cnt[cnt.length - 1][0])], ['Vaihteluväli', '', pl(cnt[cnt.length - 1][0] - cnt[0][0])]];
     return {tex: '\\begin{array}{l}' + lines.join('\\\\') + '\\end{array}', chart: cnt, rows};
   }
@@ -598,12 +731,12 @@ const Calc = (() => {
     for (const r of cls) { if (acc + r[2] >= n / 2) { mc = r; before = acc; break; } acc += r[2]; }
     const med = mc[0] + (n / 2 - before) / mc[2] * (mc[1] - mc[0]);
     const top = Math.max(...cls.map(r => r[2])), modes = cls.filter(r => r[2] === top);
-    const pl = x => { const r = parseFloat(x.toPrecision(6)); return (Math.abs(x - r) > 1e-12 ? '≈ ' : '') + String(r).replace('.', ',').replace('-', '−'); };
+    const pl = x => { const r = parseFloat(x.toPrecision(10)); return (Math.abs(x - r) > 1e-12 * Math.max(1, Math.abs(x)) ? '≈ ' : '') + String(r).replace('.', DEC() === '.' ? '.' : ',').replace('-', '−'); };
     const cl = r => pl(r[0]) + '–' + pl(r[1]);
     const lo = cls[0][0], hi = cls[cls.length - 1][1];
     const rows2 = [['Lukuja', 'n', String(n)], ['Keskiarvo (luokkakeskuksista)', 'x̄', pl(mean)],
       ['Mediaaniluokka', '', cl(mc)], ['Mediaani (arvio)', 'Md', '≈ ' + pl(med).replace('≈ ', '')],
-      ['Moodiluokka', 'Mo', modes.length < cls.length ? modes.map(cl).join('; ') : 'ei ole'],
+      ['Moodiluokka', 'Mo', modes.length < cls.length || cls.length === 1 ? modes.map(cl).join('; ') : 'ei ole'],
       ['Keskihajonta (otos)', 's', pl(sd)], ['Keskihajonta (perusjoukko)', 'σ', pl(sdp)],
       ['Pienin alaraja', '', pl(lo)], ['Suurin yläraja', '', pl(hi)], ['Vaihteluväli', '', pl(hi - lo)]];
     return {tex: '', chart: cls, rows: rows2};
@@ -616,8 +749,17 @@ const Calc = (() => {
     const nice = t => t.replace(/(\d) \\cdot ([a-zA-Z\\])/g, '$1$2').replace(/([a-zA-Z]) \\cdot ([a-zA-Z])/g, '$1$2');
     const T = x => nice(tex(S(x)));
     const par = t => /^-|[+-]/.test(t.slice(1)) || t.startsWith('-') ? '\\left(' + t + '\\right)' : t;
-    const add = (op, body, note) => { if (rows[rows.length - 1][1].replace(/\s/g, '') !== body.replace(/\s/g, '')) rows.push([op, body, note || '']); };
+    // rivi, joka ei muuta mitään (x²−5x+6=0 → x²−5x+6=0), jätetään pois
+    const same = x => x.replace(/\\left|\\right|\\cdot|[\s{}]/g, '');
+    const add = (op, body, note) => { if (same(rows[rows.length - 1][1]) !== same(body)) rows.push([op, body, note || '']); };
     const out = () => ({tex: '\\begin{array}{rll}' + rows.map(([o, b, n]) => o + '&' + b + '&' + (n ? '\\qquad ' + (n.startsWith('|') ? '\\left|\\,' + n.slice(1) + '\\right.' : '\\text{' + n + '}') : '')).join('\\\\') + '\\end{array}', steps: rows.map(r => [...r])});
+    // integraali, raja-arvo, summa: ei (väärää) derivaattaa, vaan suoraan tulos
+    if (/\\(?:int|lim|sum|prod)(?![a-zA-Z])/.test(latex) && !/[^:<>]=/.test(a)) {
+      const r = run(/^\s*\\int(?!\s*[_^])/.test(latex) ? 'integrate' : 'calc', latex, {});
+      const m = /^(\\overset\{[^{}]*\}\{=\}|=|\\approx)\s*/.exec(r.tex);
+      rows.push([m ? (m[1] === '\\approx' ? '\\approx' : '=') : '', m ? r.tex.slice(m[0].length) : r.tex, '']);
+      return out();
+    }
     if (/[^:<>]=/.test(a)) {
       const parts = a.split('='); if (parts.length !== 2) throw new Err('Vaiheittain: kirjoita yksi yhtälö, esim. 2(x+3)=4x−2.');
       const [L, R] = parts, E = S('expand((' + L + ')-(' + R + '))'), v = pickVar(E, want);
@@ -659,8 +801,16 @@ const Calc = (() => {
       const sq = Dn !== null && Math.abs(Math.sqrt(Dn) - Math.round(Math.sqrt(Dn))) < 1e-9;
       if (Dn === 0) { rows.push(['\\Leftrightarrow', v + '=' + T(r1), 'yksi ratkaisu, koska D = 0']); return out(); }
       if (sq || Dn === null) rows.push(['\\Leftrightarrow', v + '=' + T(r1) + '\\ \\lor\\ ' + v + '=' + T(r2), '']);
-      else rows.push(['\\Leftrightarrow', v + '=\\frac{' + top + '-' + T('sqrt(' + D + ')') + '}{' + den + '}\\ \\lor\\ ' + v + '=\\frac{' + top + '+' + T('sqrt(' + D + ')') + '}{' + den + '}', ''],
-        ['', v + '\\approx ' + fmtNum(numeric(r1)) + '\\ \\lor\\ ' + v + '\\approx ' + fmtNum(numeric(r2)), '']);
+      else { rows.push(['\\Leftrightarrow', v + '=\\frac{' + top + '-' + T('sqrt(' + D + ')') + '}{' + den + '}\\ \\lor\\ ' + v + '=\\frac{' + top + '+' + T('sqrt(' + D + ')') + '}{' + den + '}', '']);
+        // yhteinen tekijä supistetaan: (2 ± 2√2)/2 → 1 ± √2
+        let A = numeric('-(' + c1 + ')'), Q = numeric('2*(' + c2 + ')');
+        if ([A, Q, Dn].every(z => z !== null && Number.isInteger(z)) && Dn > 0 && Dn < 1e9) {
+          let K = 1; for (let j = 2; j * j <= Dn; j++) if (Dn % (j * j) === 0) K = j;
+          const m = Dn / (K * K), gcd = (p, q) => q ? gcd(q, p % q) : Math.abs(p), g = gcd(gcd(Math.abs(A), K), Math.abs(Q));
+          if (g > 1) { A /= g; K /= g; Q /= g; let s = 1; if (Q < 0) { A = -A; Q = -Q; s = -1; }
+            const w = sg => { const k = (K === 1 ? '' : K) + '\\sqrt{' + m + '}', t = A === 0 ? (sg < 0 ? '-' : '') + k : A + (sg < 0 ? '-' : '+') + k; return Q === 1 ? t : '\\frac{' + t + '}{' + Q + '}'; };
+            rows.push(['\\Leftrightarrow', v + '=' + w(-s) + '\\ \\lor\\ ' + v + '=' + w(s), 'supistetaan']); } }
+        rows.push(['', v + '\\approx ' + fmtNum(numeric(r1)) + '\\ \\lor\\ ' + v + '\\approx ' + fmtNum(numeric(r2)), '']); }
       return out();
     }
     // derivative, term by term
@@ -686,7 +836,7 @@ const Calc = (() => {
         const [f, g] = pr, df = T('diff(' + f + ',' + v + ')'), dg = T('diff(' + g + ',' + v + ')'), F = par(T(f)), G = par(T(g));
         if (pp) rows.push(['=', 'D\\left(' + T(f) + '\\right)\\cdot ' + G + '+' + F + '\\cdot D\\left(' + T(g) + '\\right)', 'tulon derivaatta'], ['=', par(df) + '\\cdot ' + G + '+' + F + '\\cdot ' + par(dg), '']);
         else rows.push(['=', '\\frac{D\\left(' + T(f) + '\\right)\\cdot ' + G + '-' + F + '\\cdot D\\left(' + T(g) + '\\right)}{' + G + '^2}', 'osamäärän derivaatta'], ['=', '\\frac{' + par(df) + '\\cdot ' + G + '-' + F + '\\cdot ' + par(dg) + '}{' + G + '^2}', '']);
-        add('=', nice(tex(simp('diff(' + ar + ',' + v + ')'))), 'sievennetään');
+        simpRow();
         return out();
       }
     }
@@ -696,14 +846,21 @@ const Calc = (() => {
     const why = t => /\b(?:sin|cos|tan|log|exp|sqrt)\((?!\s*[a-z]\s*\))/.test(t) || /\)\^/.test(t) ? 'yhdistetty funktio: sisäfunktion derivaatta kertoimeksi' : '';
     const notes = [...new Set(terms.map(why).filter(Boolean))];
     rows.push(['=', join(ds.map(d => nice(tex(d)))), notes.join(', ')]);
-    add('=', nice(tex(simp('diff(' + ar + ',' + v + ')'))), 'sievennetään');
+    simpRow();
     return out();
+    // sievennetty derivaatta (sama muoto kuin Derivoi-napissa), vain jos se ei ole edellistä riviä pidempi
+    function simpRow() {
+      let d = giacExpr('diff(' + toG(ar) + ',' + v + ')'), nd = null; try { nd = simp('diff(' + ar + ',' + v + ')'); } catch {}
+      if (!(d && (!nd || sameVal(d, nd)))) d = nd; if (!d) return;
+      const b = nice(pretty(d, latex)), L = x => same(x).length, K = x => same(x).replace(/[+-]/g, '').split('').sort().join(''), p = rows[rows.length - 1][1];
+      if (L(b) < L(p) && K(b) !== K(p)) add('=', b, 'sievennetään');   // ei pelkkää termien järjestyksen vaihtoa
+    }
   }
 
   // ---------- definitions from earlier rows ----------
   function resetDefs() {
     try { nerdamer.clearVars(); } catch {}
-    userFns = new Set(); unitVars.clear(); matVars.clear();
+    userFns = new Set(); userDefs = {}; unitVars.clear(); matVars.clear(); tempVars.clear();
   }
   // earlier rows: matrices and vectors too (A:=…, ā:=2ī+j̄)
   function define(latex) {
@@ -715,16 +872,22 @@ const Calc = (() => {
     const fm = /^\s*([a-zA-Z])\s*(?:\\left)?\(\s*([a-zA-Z])\s*(?:\\right)?\)\s*(=|:=|\\coloneq)(.+)$/.exec(latex);
     if (fm) {
       const name = fm[1], v = fm[2];
-      userFns.add(name);
-      const body = toAscii(fm[4]);
+      // f(x)=0 when f is already defined is an equation, not a new definition
+      if (fm[3] === '=' && userFns.has(name)) return null;
+      // the plain expression (radians); the degree version is used for numbers in degree mode
+      const body = toAscii(fm[4], {rad: true}), bodyDeg = toAscii(fm[4]);
+      userFns.add(name); userDefs[name] = {v, body};
       nerdamer.setFunction(name, [v], body);
+      nerdamer.setFunction(name + 'Qdeg', [v], bodyDeg);
       return {kind:'fn', name, v, body};
     }
     // a:=5, x_1:=2, also Greek names from drawings: \alpha:=37°
-    const vm = /^\s*((?:\\(?:alpha|beta|gamma|delta|epsilon|varepsilon|theta|lambda|mu|rho|sigma|tau|phi|varphi|omega)\b|[a-zA-Z])(?:_\{?[a-zA-Z0-9]+\}?)?)\s*(?::=|\\coloneq|\\coloneqq)(.+)$/.exec(latex);
+    const vm = /^\s*((?:\\(?:alpha|beta|gamma|delta|epsilon|varepsilon|theta|lambda|mu|rho|sigma|tau|phi|varphi|omega)\b|\\Delta\s*(?:\\[a-zA-Z]+|[a-zA-Z])?|[a-zA-Z])(?:_\{?[a-zA-Z0-9]+\}?)?)\s*(?::=|\\coloneq|\\coloneqq)(.+)$/.exec(latex);
     if (vm) {
       let name = vm[1].replace(/[_{}\\\s]/g, ''); if (name === 'E') name = 'Evar';
       const U = [], ua = toAscii(vm[2], {units: U});
+      tempVars.delete(name);
+      if (U.length === 1 && TEMP[U[0].name]) tempVars.set(name, U[0].name);
       if (U.length) { nerdamer.setVar(name, ua); unitVars.add(name); return {kind: 'var', name: vm[1]}; }
       nerdamer.setVar(name, toAscii(vm[2]));
       return {kind:'var', name: vm[1]};
@@ -748,11 +911,23 @@ const Calc = (() => {
     return [latex, null];
   }
   // value in SI units + dimensions, by putting numbers in for the dimension symbols
+  // plain JS decimals with the dimension symbols as inputs (nerdamer's exact fractions of 10⁻³⁴ were slow and its decimals lost them)
+  function jsDims(expr) {
+    const F = {sqrt: 'Math.sqrt', log: 'Math.log', exp: 'Math.exp', abs: 'Math.abs', pi: 'Math.PI', e: 'Math.E'};
+    let ok = true;
+    const js = expr.replace(/[a-zA-Z_]\w*/g, w => DIMN.includes(w) ? '__d.' + w : F[w] || (ok = false, w)).replace(/\^/g, '**');
+    if (!ok) return null;
+    try { const f = new Function('__d', 'return ' + js); f(Object.fromEntries(DIMN.map(n => [n, 1]))); return f; } catch { return null; }
+  }
+  const numOr = x => { let r = null; try { r = numeric(x); } catch {} return r === null ? NaN : r; };
   function quantity(a) {
     a = nerdamer(a).toString();  // puts in saved values first
-    const val = sub => { const r = Number(nerdamer(a, sub).evaluate().text('decimals')); if (!isFinite(r)) throw new Err('Laskussa on tuntematon kirjain. Kirjoita yksikkö lainausmerkin jälkeen, esim. 5"kg'); return r; };
+    const js = jsDims(a);
+    const val = sub => { let r = js ? js(sub) : NaN; if (!isFinite(r)) r = numOr(nerdamer(a, sub).toString()); if (!isFinite(r)) throw new Err('Laskussa on tuntematon kirjain. Kirjoita yksikkö lainausmerkin jälkeen, esim. 5"kg'); return r; };
     const one = Object.fromEntries(DIMN.map(n => [n, 1]));
-    const c = val(one);
+    let c = val(one);
+    // decimals leave a tiny rest where the exact answer is 0 (0,1 m + 0,2 m − 0,3 m): check small values exactly
+    if (js && c && Math.abs(c) < 1e-9) { try { if (nerdamer(a, one).evaluate().toString() === '0') c = 0; } catch {} }
     if (c === 0) return {c: 0, d: D()};
     const d = DIMN.map(n => {
       const e = Math.log2(val({...one, [n]: 2}) / c), e3 = val({...one, [n]: 3}) / c;
@@ -764,7 +939,7 @@ const Calc = (() => {
   const toK = (n, x) => n === '°C' ? x + 273.15 : n === '°F' ? (x - 32) * 5 / 9 + 273.15 : x;
   const fromK = (n, x) => n === '°C' ? x - 273.15 : n === '°F' ? (x - 273.15) * 9 / 5 + 32 : x;
   // equation with units: solve with the unit symbols in, then show each answer with a unit
-  function unitSolve(a, U, want, wantAll) {
+  function unitSolve(a, U, want, wantAll, pos) {
     if (a.includes(';')) return unitSolveSys(a, U, wantAll);
     const [lhs, rhs] = a.split('=');
     if (rhs === undefined || a.split('=').length > 2) throw new Err('Kirjoita yksi yhtälö, esim. 49,05"N=5"kg·a');
@@ -774,11 +949,13 @@ const Calc = (() => {
     // solve with plain numbers (SI values); a unit symbol set to 2 shows how the answer scales = its unit
     const L = nerdamer(lhs).toString(), R = nerdamer(rhs).toString();
     const one = Object.fromEntries(DIMN.map(n => [n, 1]));
-    const num = x => Number(nerdamer(x).evaluate().text('decimals'));
+    const num = numOr;
     function roots(sub) {
       const l = nerdamer(L, sub).toString(), r = nerdamer(R, sub).toString();
       const sols = nerdamer.solve(l + '=' + r, v);
       let list; try { list = sols.symbol.elements.map(e => e.toString()); } catch { list = String(sols).replace(/^\[|\]$/g, '').split(',').filter(Boolean); }
+      // square-root equation nerdamer misses: square both sides (false roots are dropped below)
+      if (!list.length && /sqrt/.test(l + r)) { try { const s2 = nerdamer.solve('(' + l + ')^2=(' + r + ')^2', v); try { list = s2.symbol.elements.map(e => e.toString()); } catch { list = String(s2).replace(/^\[|\]$/g, '').split(',').filter(Boolean); } } catch {} }
       const out = [];
       for (const x of list) {
         if (/(^|[^a-z])i([^a-z]|$)/.test(x)) continue;
@@ -792,7 +969,12 @@ const Calc = (() => {
       }
       return out.sort((p, q) => p - q);
     }
-    const base = roots(one);
+    // a few Newton steps make a number-search root exact enough (25 = 100·(1/2)^(t/5730 a) gave 11460,00018 a)
+    const l1 = nerdamer(L, one).toString(), r1 = nerdamer(R, one).toString();
+    const f1 = x => num(nerdamer(l1, {[v]: '(' + sciNum(x) + ')'}).toString()) - num(nerdamer(r1, {[v]: '(' + sciNum(x) + ')'}).toString());
+    const polish = x => { try { for (let k = 0; k < 3 && x; k++) { const fx = f1(x); if (!fx) break; const h = 1e-6 * Math.abs(x), dfx = (f1(x + h) - fx) / h;
+      const x2 = x - fx / dfx; if (!isFinite(x2) || !(Math.abs(f1(x2)) < Math.abs(fx))) break; x = x2; } } catch {} return x; };
+    const base = roots(one).map(polish);
     const ref = base.findIndex(x => x !== 0);
     const d = DIMN.map(n => {
       if (ref < 0) return 0;
@@ -807,7 +989,8 @@ const Calc = (() => {
       const lv = num(nerdamer(L, {...odd, [v]: val}).toString()), rv = num(nerdamer(R, {...odd, [v]: val}).toString());
       if (Math.abs(lv - rv) > 1e-6 * Math.max(1, Math.abs(lv), Math.abs(rv))) throw new Err('Yksiköt eivät sovi yhteen.');
     }
-    const parts = base.map(c => tex(v) + '=' + showQ({c, d}, U, false));
+    // from a system of given values (pos): only the positive answer, as the whole-system solver gave (t = 10 s, not ±)
+    const parts = (pos && base.some(x => x > 0) ? base.filter(x => x > 0) : base).map(c => tex(v) + '=' + showQ({c, d}, U, false));
     if (!parts.length) return {vars: vs, v, tex: '\\Leftrightarrow \\text{ei ratkaisua}'};
     return {vars: vs, v, tex: '\\Leftrightarrow ' + parts.join('\\ \\lor\\ ')};
   }
@@ -823,8 +1006,26 @@ const Calc = (() => {
     if (wantAll && wantAll.length) vs = wantAll.filter(v => vs.includes(v));
     if (!vs.length) throw new Err('Yhtälöissä ei ole ratkaistavaa kirjainta.');
     if (vs.length > eqs.length) throw tooMany(vs, eqs.length);
-    const num = x => Number(nerdamer(x).evaluate().text('decimals'));
+    const num = numOr;
     const one = Object.fromEntries(DIMN.map(n => [n, 1]));
+    // annetut arvot (t = 8 s) ovat jo käyttäjän tiedossa: vastaukseen vain lasketut kirjaimet (muuten t näkyisi 0,00222 h)
+    const given = new Set(eqs.flatMap(([l, r]) => [[l, r], [r, l]].filter(([x, y]) => vs.includes(x) && !nerdamer(y).variables().some(w => !skip(w))).map(([x]) => x)));
+    const shown = list => list.filter(([v]) => !given.has(v)).length ? list.filter(([v]) => !given.has(v)) : list;
+    // known values (F = 1 N, G = 6,674·10⁻¹¹ …) go into the other equation; one equation with one letter left is solved alone
+    // (the whole system with exact 10⁻¹¹ fractions took seconds)
+    {
+      const val = {}, rest = [];
+      for (const [l, r] of eqs) {
+        const free = x => !nerdamer(x).variables().some(w => !skip(w));
+        if (vs.includes(l) && !(l in val) && free(r)) val[l] = r; else if (vs.includes(r) && !(r in val) && free(l)) val[r] = l; else rest.push([l, r]);
+      }
+      if (rest.length === 1 && Object.keys(val).length) {
+        const sub = Object.fromEntries(Object.entries(val).map(([k, x]) => [k, '(' + x + ')']));
+        const e = nerdamer(rest[0][0], sub).toString() + '=' + nerdamer(rest[0][1], sub).toString();
+        const left = nerdamer('(' + e.replace('=', ')-(') + ')').variables().filter(w => !skip(w));
+        if (left.length === 1) { const r = unitSolve(e, U, left[0], null, true); delete r.vars; return r; }
+      }
+    }
     function sol(sub) {
       let r;
       const E = eqs.map(([l, rr]) => nerdamer(l, sub).toString() + '=' + nerdamer(rr, sub).toString());
@@ -852,10 +1053,10 @@ const Calc = (() => {
           if (d1.every((x, k) => isFinite(x) && Math.abs(x - d2[k]) < 1e-6)) {
             const d = d1.map(x => Math.round(x * 1e6) / 1e6);
             const unit = showQ({c: 1, d}, [], false).replace(/^1(\\,)?/, '');
-            out.push(tex(v) + '=' + tex(simp(nerdamer(e, one).toString())) + (unit ? '\\,' + unit : ''));
-          } else out.push(tex(v) + '=' + tex(e).replace(/u([LMTIKN])/g, (m, c) => unitTex(UT['u' + c])));
+            out.push([v, tex(v) + '=' + tex(simp(nerdamer(e, one).toString())) + (unit ? '\\,' + unit : '')]);
+          } else out.push([v, tex(v) + '=' + tex(e).replace(/u([LMTIKN])/g, (m, c) => unitTex(UT['u' + c]))]);
         }
-        if (out.length === vs.length) return {tex: '\\Leftrightarrow ' + out.join(',\\ ')};
+        if (out.length === vs.length) return {tex: '\\Leftrightarrow ' + shown(out).map(x => x[1]).join(',\\ ')};
       }
     }
     const base = sol(one);
@@ -865,7 +1066,7 @@ const Calc = (() => {
     DIMN.forEach((n, k) => {
       const sc = sol({...one, [n]: 2});
       if (!sc) throw new Err('Yksiköt eivät sovi yhteen.');
-      for (const v of vs) dims[v][k] = base[v] === 0 ? 0 : Math.round(Math.log2(sc[v] / base[v]) * 1e6) / 1e6;
+      for (const v of vs) dims[v][k] = base[v] === 0 ? 0 : Math.round(Math.log2(Math.abs(sc[v] / base[v])) * 1e6) / 1e6;
     });
     // check: both sides of every equation must have the same unit
     const odd = {uL: 3, uM: 5, uT: 7, uI: 11, uK: 13, uN: 17};
@@ -876,9 +1077,15 @@ const Calc = (() => {
       if (Math.abs(lv - rv) > 1e-6 * Math.max(1, Math.abs(lv), Math.abs(rv))) throw new Err('Yksiköt eivät sovi yhteen.');
     }
     // no letter buttons for a system: the ", x, y" at the end already chooses the letters
-    return {tex: '\\Leftrightarrow ' + vs.map(v => tex(v) + '=' + showQ({c: base[v], d: dims[v]}, U, false)).join(',\\ ')};
+    return {tex: '\\Leftrightarrow ' + shown(vs.map(v => [v, tex(v) + '=' + showQ({c: base[v], d: dims[v]}, U, false)])).map(x => x[1]).join(',\\ ')};
   }
-  function unitRun(latex, want, wantAll) {
+  function unitRun(latex, want, wantAll, action) {
+    const r = unitRun1(latex, want, wantAll);
+    // ≈ button: the answer is a rounded decimal
+    if (r && action === 'approx' && /^=/.test(r.tex)) r.tex = '\\approx ' + r.tex.slice(1);
+    return r;
+  }
+  function unitRun1(latex, want, wantAll) {
     const [lhs, target] = splitTo(latex);
     const U = [];
     const a = toAscii(lhs, {units: U});
@@ -891,9 +1098,11 @@ const Calc = (() => {
       const Ut = [], at = toAscii(target, {units: Ut});
       if (!Ut.length) throw new Err('Kirjoita nuolen jälkeen yksikkö, esim. → "m/s');
       const tt = target.trim();
-      if (U.length === 1 && Ut.length === 1 && TEMP[U[0].name] && TEMP[Ut[0].name]) {
-        const x = quantity(a).c / U[0].f;
-        return {tex: '=' + fmtNum(fromK(Ut[0].name, toK(U[0].name, x))) + '\\,' + tt};
+      // one temperature value (80 °C, or T:=80"°C alone): with the offset, 80 °C = 353,15 K; differences (80 °C − 20 °C) without
+      const tv = !U.length && tempVars.get(lhs.replace(/[_{}\\\s]/g, ''));
+      if (((U.length === 1 && TEMP[U[0].name]) || tv) && Ut.length === 1 && TEMP[Ut[0].name]) {
+        const from = tv || U[0].name, x = quantity(a).c / lookupUnit(from)[0];
+        return {tex: '=' + fmtNum(fromK(Ut[0].name, toK(from, x))) + '\\,' + tt};
       }
       const q = quantity(a), qt = quantity(at);
       if (!sameDims(q.d, qt.d)) throw new Err('Yksiköt eivät sovi yhteen, joten muunnos ei onnistu.');
@@ -910,6 +1119,9 @@ const Calc = (() => {
         }
       } catch {}
     }
+    // a temperature alone stays in its own unit (80 °C, T:=80"°C → T = 80 °C), not K
+    const tu = U.length === 1 && TEMP[U[0].name] ? U[0].name : !U.length && tempVars.get(lhs.replace(/[_{}\\\s]/g, ''));
+    if (tu && sameDims(q.d, D(0, 0, 0, 0, 1))) return {tex: '=' + fmtNum(q.c / lookupUnit(tu)[0]) + '\\,' + unitTex(tu)};
     return {tex: '=' + showQ(q, U)};
   }
   // a quantity as text: number and the most natural unit
@@ -919,13 +1131,20 @@ const Calc = (() => {
     const own = U.find(u => sameDims(u.d, q.d) && !TEMP[u.name]);
     if (own) return fmtNum(q.c / own.f) + '\\,' + unitTex(own.name);
     // a ratio or product of two units the user wrote (km/h, kW·h …)
+    // kun tulos on yksi yksikkö (V·A = W, V/Ω = A, J/s = W), näytetään se eikä paria
+    const yksi = NAMED.some(n => sameDims(BASE[n][1], q.d)) || (q.d.filter(x => x).length === 1 && q.d.some(x => x === 1));
+    const nicer = NICE.some(([d]) => sameDims(d, q.d));   // Hz·m: m/s is nicer than the product (km/h stays)
     if (pairs) for (const u of U) for (const w of U) {
       if (u === w || TEMP[u.name] || TEMP[w.name]) continue;
-      if (sameDims(u.d.map((x, k) => x + w.d[k]), q.d)) return fmtNum(q.c / (u.f * w.f)) + '\\,' + (u.name === w.name ? unitTex(u.name) + '^{2}' : w.name === 'h' && /W$/.test(u.name) ? unitTex(u.name + 'h') : unitTex(u.name) + '\\cdot ' + unitTex(w.name));
+      // kahden eri yksikön tulo, jolle on oma nimi (V·A = W, N·m = J); kWh säilyy
+      if (u.name !== w.name && !(w.name === 'h' && /W$/.test(u.name)) && yksi) continue;
+      if (!(nicer && u.name !== w.name) && sameDims(u.d.map((x, k) => x + w.d[k]), q.d)) return fmtNum(q.c / (u.f * w.f)) + '\\,' + (u.name === w.name ? unitTex(u.name) + '^{2}' : w.name === 'h' && /W$/.test(u.name) ? unitTex(u.name + 'h') : unitTex(u.name) + '\\cdot ' + unitTex(w.name));
       if (sameDims(u.d.map((x, k) => x - w.d[k]), q.d)) return fmtNum(q.c / (u.f / w.f)) + '\\,' + unitTex(u.name) + '/' + unitTex(w.name);
     }
     const named = NAMED.find(n => sameDims(BASE[n][1], q.d));
     if (named) return fmtNum(q.c) + '\\,' + unitTex(named);
+    const nice = NICE.find(([d]) => sameDims(d, q.d));
+    if (nice) return fmtNum(q.c) + '\\,' + nice[1]();
     const names = ['m', 'kg', 's', 'A', 'K', 'mol'], order = [1, 0, 2, 3, 4, 5];
     const part = (e, n) => unitTex(n) + (Math.abs(e) !== 1 ? '^{' + fmtNum(Math.abs(e)) + '}' : '');
     const num = [], den = [];
@@ -952,10 +1171,13 @@ const Calc = (() => {
     const raw = t.trim();
     const c = raw.replace(/\\left|\\right/g, '').replace(/\\(?:leqslant|leq|le)(?![a-zA-Z])/g, '≤').replace(/\\(?:geqslant|geq|ge)(?![a-zA-Z])/g, '≥').replace(/\\lt(?![a-zA-Z])/g, '<').replace(/\\gt(?![a-zA-Z])/g, '>').replace(/\\[,;: ]/g, ' ');
     const tk = c.split(/(<|>|≤|≥)/).map(x => x.trim());
-    if (tk.length !== 3 && tk.length !== 5) return null;
-    const isLet = x => new RegExp('^' + LET + '$').test(x);
     const num = x => { const n = numeric(toAscii(x.replace(/\^\{?\\circ\}?|\\degree|°/g, ''), {rad: true})); if (n === null || !isFinite(n)) throw 0; return n; };
     const o = {tex: raw};
+    // x ≠ 0: every value except one
+    const ne = new RegExp('^(' + LET + ')\\s*\\\\neq?(?![a-zA-Z])(.+)$').exec(c.trim());
+    if (ne) { let val; try { val = num(ne[2]); } catch { return null; } o.v = ne[1].replace(/[\\_{}]/g, ''); if (o.v === 'E') o.v = 'Evar'; o.ok = x => Math.abs(x - val) > 1e-9; return o; }
+    if (tk.length !== 3 && tk.length !== 5) return null;
+    const isLet = x => new RegExp('^' + LET + '$').test(x);
     try {
       const put = (side, op, val) => { // side: the bound is on the 'left' or 'right' of the letter
         const small = side === 'left' ? (op === '<' || op === '≤') : (op === '>' || op === '≥');
@@ -1123,6 +1345,8 @@ const Calc = (() => {
     return out();
   }
   function run(action, latex, opt = {}) {
+    // an error inside nerdamer's evaluate() can leave it stuck in decimals-only mode (after x = x+1, ln 0,917 came out as a long fraction)
+    try { nerdamer.getCore().Settings.PARSE2NUMBER = false; } catch {}
     latex = stripStyle(latex);
     // ± ja ∓: lasketaan molemmat merkit erikseen ja yhdistetään vastaukset (2±3 = 5 tai −1, x=±√4 → x=−2 ∨ x=2)
     const pm = /\\(pm|mp)(?![a-zA-Z])/.exec(latex);
@@ -1147,6 +1371,9 @@ const Calc = (() => {
     // Nspire style: "yhtälö, x" at the end chooses the letter
     // { brace system: rows become "eq; eq"
     // Integroi-nappi määrätylle integraalille: lasketaan arvo
+    // ∫ … dx ilman rajoja: integraalifunktio + C
+    const ii = (action === 'integrate' || action === 'calc') && /^\s*\\int(?!\s*[_^])([\s\S]*?)(?:\\[,;! ]|\s)*(?:\\mathrm\{d\}|\\differentialD|d)\s*([a-zA-Z])\s*$/.exec(latex);
+    if (ii && ii[1].trim()) { latex = ii[1]; action = 'integrate'; opt = {...opt, v: ii[2]}; }
     if (action === 'integrate' && /\\int/.test(latex)) action = 'calc';
     const isSys = /cases|displaylines/.test(latex);
     latex = latex.replace(/\\begin\{cases\}([\s\S]*?)\\end\{cases\}/g, (_, b) =>
@@ -1157,13 +1384,25 @@ const Calc = (() => {
     // a letter may have a subscript or be Greek: ", v, f_0" or ", \\lambda"
     const LET = '(?:\\\\[a-zA-Z]+|[a-zA-Z])(?:_\\{?[a-zA-Z0-9]+\\}?)?';
     // a condition for the answer at the end: ", 0<a<180" or ", x>0" (also ≤ ≥)
+    const cutCond = s => {
+      s = s.replace(/\\lbrack(?![a-zA-Z])/g, '[').replace(/\\rbrack(?![a-zA-Z])/g, ']');
+      // x ∈ [0, 360] (also ]0,360[ and (0,2π)): the comma inside the brackets is not the cut
+      const iv = new RegExp('(?:\\{,\\}|,)\\s*(?:\\\\[,;: ]\\s*)*(' + LET + ')\\s*\\\\in(?![a-zA-Z])\\s*(?:\\\\left)?\\s*(\\[|\\]|\\()\\s*((?:\\{,\\}|[^,;])+?)\\s*[,;]\\s*((?:\\{,\\}|[^,;])+?)\\s*(?:\\\\right)?\\s*(\\]|\\[|\\))\\s*$').exec(s);
+      if (iv) {
+        const c = parseCond(iv[3] + (iv[2] === '[' ? '\\le ' : '<') + iv[1] + (iv[5] === ']' ? '\\le ' : '<') + iv[4], LET);
+        if (c) { c.tex = s.slice(s.length - iv[0].length).replace(/^\s*(?:\{,\}|,)\s*/, ''); return {cond: c, rest: s.slice(0, s.length - iv[0].length).replace(/(?:\\[,;: ]|\s)+$/, '')}; }
+      }
+      const cut = [...s.matchAll(/,/g)].map(x => x.index).filter(i => !(s[i - 1] === '{' && s[i + 1] === '}') && s[i - 1] !== '\\').pop();
+      const tail = cut === undefined ? '' : s.slice(cut + 1);
+      if (cut === undefined || !/<|>|\\[lg]e|\\[lg]t|\\neq?(?![a-zA-Z])/.test(tail) || /[^:]=/.test(tail.replace(/\\[lg]eq?/g, ''))) return null;
+      const c = parseCond(tail, LET);
+      return c ? {cond: c, rest: s.slice(0, cut).replace(/(?:\\[,;: ]|\s)+$/, '')} : null;
+    };
     let cond = null;
-    { const cut = [...latex.matchAll(/,/g)].map(x => x.index).filter(i => !(latex[i - 1] === '{' && latex[i + 1] === '}') && latex[i - 1] !== '\\').pop();
-      const tail = cut === undefined ? '' : latex.slice(cut + 1);
-      if (cut !== undefined && /<|>|\\[lg]e|\\[lg]t/.test(tail) && !/[^:]=/.test(tail.replace(/\\[lg]eq?/g, ''))) {
-        cond = parseCond(tail, LET);
-        if (cond) latex = latex.slice(0, cut).replace(/(?:\\[,;: ]|\s)+$/, '');
-      } }
+    { const c1 = cutCond(latex); if (c1) { cond = c1.cond; latex = c1.rest; } }
+    // ehto ennen kirjaimia (", 0<x<5, x"): ehto pois, kirjaimet jäävät loppuun
+    if (!cond) { const mv = latex.match(new RegExp('^([\\s\\S]*?\\S)((?:' + SEP + LET + ')+)\\s*$'));
+      if (mv) { const c2 = cutCond(mv[1]); if (c2) { cond = c2.cond; latex = c2.rest + mv[2]; } } }
     const m = latex.match(new RegExp('^([\\s\\S]*?\\S)((?:' + SEP + LET + ')+)\\s*$'));
     if (m) { latex = m[1]; const vs = m[2].match(new RegExp(LET, 'g')).map(x => x.replace(/[\\_{}]/g, '')); opt = {...opt, v: vs[0], vs}; }
     // paper style chain "f = v/λ = 4,2 m/s / 2,1 Hz": work out the last part
@@ -1175,9 +1414,10 @@ const Calc = (() => {
     try { r = run1(action, latex, o1); }
     catch (e) {
       // "2π·d/λ = 2π·0,11 m / 0,66 m": the equation can't be solved, so work out the right side
-      if (!(parts.length === 2 && !isSys && !latex.includes(';') && (action === 'calc' || action === 'approx' || action === 'simplify'))) throw e;
-      try { r = run1(action, parts[1], {}); } catch { throw e; }
-      if (r.vars) throw e;
+      if (e && e.tex) r = {tex: e.tex}; else {
+      if (!(parts.length === 2 && !isSys && !latex.includes(';') && (action === 'calc' || action === 'approx' || action === 'simplify'))) throw fin(e);
+      try { r = run1(action, parts[1], {}); } catch { throw fin(e); }
+      if (r.vars) throw fin(e); }
     }
     // letters with a letter subscript (α_r is alphar inside): show α_r again
     const G = 'alpha|beta|gamma|delta|varepsilon|epsilon|zeta|eta|vartheta|theta|kappa|lambda|mu|nu|xi|rho|sigma|tau|varphi|phi|chi|psi|omega';
@@ -1192,6 +1432,8 @@ const Calc = (() => {
     }
     if (r.vars && Object.keys(vsub).length) r.vsub = vsub;
     r.tex = r.tex.replace(/Evar/g, 'E');
+    // ΔT is DeltaT inside: show it as Δ T
+    r.tex = r.tex.replace(/(^|[^\\a-zA-Z])Delta/g, '$1\\Delta ');
     // Greek letters written out as words (lambda=…): show them as real letters
     r.tex = r.tex.replace(/(^|[^\\a-zA-Z])(alpha|beta|gamma|delta|varepsilon|epsilon|zeta|eta|vartheta|theta|kappa|lambda|mu|nu|xi|rho|sigma|tau|varphi|phi|chi|psi|omega)(?![a-zA-Z])/g, '$1\\$2');
     // letters with a subscript (f_0 is f0 inside): show the small number again
@@ -1206,6 +1448,7 @@ const Calc = (() => {
     return r;
   }
   function run1(action, latex, opt) {
+    approxHit = false;
     if (action === 'steps') { const is = ineqSteps(latex, opt.v, opt.cond); if (is) return is; }
     if (action === 'steps') { const d = tryDefine(latex); if (d) throw new Err('Määrittelyllä ei ole vaiheita.'); return stepsRun(latex, opt.v); }
     if (['solve','calc','approx'].includes(action)) { const ir = ineqRun(latex, opt.v, opt.cond); if (ir) return ir; }
@@ -1213,7 +1456,7 @@ const Calc = (() => {
     const mr = matRun(latex, action); if (mr) return mr;
     const def = tryDefine(latex);
     if (def) return {tex: def.kind === 'fn' ? '\\text{määritelty } ' + def.name + '(' + def.v + ')' : '\\text{muistissa } ' + def.name};
-    const ur = unitRun(latex, opt.v, opt.vs);
+    const ur = unitRun(latex, opt.v, opt.vs, action);
     if (ur) return ur;
     const aDeg = toAscii(latex);
     if (!aDeg.trim()) throw new Err('Kirjoita ensin kaava.');
@@ -1223,32 +1466,52 @@ const Calc = (() => {
     if (aDeg.includes(';') || (hasEq && (action === 'solve' || action === 'calc' || action === 'approx'))) return solve(aDeg, opt.v, opt.vs, opt.cond);
     if (hasEq) throw new Err('Yhtälölle käytä Ratkaise.');
     const noVars = !vars(aDeg).length;
+    // arcsin 2: ei määritelty (ei kompleksilukua eikä 180·arcsin(2)/π)
+    if (noVars && /\ba(?:sin|cos)d?\(/.test(aDeg)) { const f = numFn(aDeg.replace(/\b(a?(?:sin|cos|tan))d\(/g, '$1D('), '_'); if (f && isNaN(f(0))) throw new Err('Ei määritelty: arcsin ja arccos on määritelty vain luvuille −1…1.'); }
     // degrees only for plain numbers; algebra (derivative etc.) always in radians
     const a = noVars ? aDeg : toAscii(latex, {rad: true});
+    // arcsin 0,5 asteina: vastaukseen °-merkki (vain kun koko lasku on yksi arcsin/arccos/arctan)
+    const dg = noVars && /^\s*a(?:sin|cos|tan)d\(/.test(a) && (() => { let k = 0; const t = a.trim(); for (let i = t.indexOf('('); i < t.length; i++) { if (t[i] === '(') k++; else if (t[i] === ')' && !--k) return i === t.length - 1; } return false; })();
+    if (dg && (action === 'calc' || action === 'approx')) { const n = numeric(a); if (n !== null && isFinite(n)) return {tex: (action === 'calc' && Math.abs(n - Math.round(n)) < 1e-9 ? '=' + fmtNum(Math.round(n)) : '\\approx ' + fmtNum(n)) + '^{\\circ}'}; }
     switch (action) {
       case 'calc': {
+        if (noVars && approxHit) { const n = numeric(a); if (n !== null && isFinite(n)) return {tex: '\\approx ' + fmtNum(n)}; }
         if (noVars) { const big = bigTex(bigLog(a) || {l: 0}); if (big) { let r = null; try { r = numeric(a); } catch {} if (r === null || !isFinite(r) || r === 0) return {tex: '\\approx ' + big}; } return {tex: present(nerdamer(a).toString())}; }
         let r; try { r = simp(a); } catch { r = nerdamer(a).toString(); }
-        return {tex: '=' + tex(r)};
+        return {tex: '=' + pretty(r, latex, !isPoly(a))};   // murtolauseke → polynomi: auki kerrottuna
       }
       case 'approx': {
         const n = numeric(a);
         if (n === null || !isFinite(n) || n === 0) { const big = bigTex(bigLog(a) || {l: 0}); if (big) return {tex: '\\approx ' + big}; }
         if (n !== null) return {tex: '\\approx ' + fmtNum(n)};
+        // letters left (m·0,917¹⁴): numbers as decimals, not long fractions
+        // (tex() would turn decimals back into fractions, so each decimal hides behind a stand-in letter name)
+        try { const nums = [];
+          const d = nerdamer(a).evaluate().text('decimals').replace(/\d+\.\d+(e[+-]?\d+)?/g, x => { nums.push(Number(x)); return 'qzz' + 'abcdefghijklmnopqrstuvwxyz'[nums.length - 1]; });
+          if (nums.length <= 26 && !/\d{7,}/.test(d)) { let t = tex(d); nums.forEach((n, i) => { t = t.split('qzz' + 'abcdefghijklmnopqrstuvwxyz'[i]).join(fmtNum(n)); });
+            if (!/qzz/.test(t)) return {tex: '\\approx ' + t}; } } catch {}
         return {tex: '\\approx ' + tex(nerdamer(a).evaluate().toString())};
       }
-      case 'simplify': return {tex: '=' + tex(simp(a))};
+      case 'simplify': { const r = simp(a), g = giacExpr('simplify(' + a + ')');
+        return {tex: "=" + decTex(g && g.length <= r.length + 4 ? g : r, latex)}; }
       case 'factor': return {tex: '=' + tex(nerdamer('factor(' + a + ')').toString())};
-      case 'expand': return {tex: '=' + tex(nerdamer('expand(' + a + ')').toString())};
+      case 'expand': return {tex: '=' + decTex(nerdamer('expand(' + a + ')').toString(), latex)};
       case 'diff': {
         const v = pickVar(a, opt.v);
-        return {vars: vars(a), v, tex: '\\overset{D_' + v + '}{=}' + tex(simp('diff(' + a + ',' + v + ')'))};
+        // Giac derivoi (nerdamer kaatuu esim. ln|x|:ään), nerdamer varalla; vastaus tekstikirjan muotoon
+        // d/dx already written in the formula: differentiate only once
+        const de = /\bdiff\(/.test(a) ? a : 'diff(' + a + ',' + v + ')', g = giacExpr(toG(de));
+        let nd = null; try { nd = simp(de); } catch {}
+        const d = g && (!nd || sameVal(g, nd)) ? g : nd; if (!d) throw new Err('Tätä derivaattaa en osaa laskea.');
+        return {vars: vars(a), v, tex: '\\overset{D_' + v + '}{=}' + pretty(d, latex)};
       }
       case 'integrate': {
         const v = pickVar(a, opt.v);
-        const r = nerdamer('integrate(' + a + ',' + v + ')').toString();
+        // Giac antaa ∫(x²+1)/x = x²/2 + ½ln(x²): ½ln(u²) = ln|u| (nerdamer tekisi siitä väärin ln u)
+        const gi = giacEval('integrate(' + toG(a) + ',' + v + ')');
+        const r = (gi && fromGiac(GR(gi).replace(/\bln\(((?:[^()]|\([^()]*\))+)\^2\)/g, '(2*ln(abs($1)))'))) || nerdamer('integrate(' + a + ',' + v + ')').toString();
         if (r.includes('integrate')) throw new Err('Tätä integraalia en osaa laskea.');
-        return {vars: vars(a), v, tex: '\\overset{\\int}{=}' + tex(r) + '+C'};
+        return {vars: vars(a), v, tex: '\\overset{\\int}{=}' + lnAbs(tex(absLog(r, v))) + '+C'};
       }
       case 'solve': throw new Err('Ratkaise tarvitsee yhtälön, esim. 2x+1=5.');
     }
@@ -1282,6 +1545,8 @@ const Calc = (() => {
       if (!xs.some(y => { const d = Math.abs(x - y) / per; return Math.abs(d - Math.round(d)) < 1e-9; })) xs.push(x);
     }
     xs.sort((a, b) => a - b);
+    // kaksi ratkaisuparvea puolen jakson välein (sin x = 0: 0° ja 180°) → yksi: x = n·180°
+    if (xs.length === 2 && Math.abs(Math.abs(xs[1] - xs[0]) - per / 2) < 1e-9 * per) { per /= 2; let x0 = ((xs[0] % per) + per) % per; if (per - x0 < 1e-9 * per) x0 = 0; xs.splice(0, 2, x0); }
     // degrees get a ° sign; radians are shown as parts of π when they are neat
     const show = x => {
       if (isDeg) return fmtNum(x) + '^{\\circ}';
@@ -1310,13 +1575,65 @@ const Calc = (() => {
     return '\\Leftrightarrow ' + xs.map(x => v + '=' + (zero(x) ? '' : show(x) + '+') + 'n\\cdot ' + show(per)).join('\\ \\lor\\ ') + ',\\ n\\in\\Z';
   }
   // muut trigonometriset yhtälöt (sin x = cos x, sin²x = 1): nollakohdat yhdeltä kierrokselta numeerisesti, sitten jakso
+  // fast decimal function of one letter (nerdamer's own turns 0,999879^a into 999879^a/1000000^a, which overflows,
+  // and its exact evaluate() takes minutes for a^5730); null when the expression has other names
+  function jsFn(expr, v) {
+    const F = {sqrt: 'Math.sqrt', log: 'Math.log', log10: 'Math.log10', exp: 'Math.exp', abs: 'Math.abs', pi: 'Math.PI', e: 'Math.E', oddroot: '__r'};
+    // pariton juuri negatiivisesta luvusta on reaalinen (∛−27 = −3): (B)^(p/q), q pariton → oddroot((B),p,q)
+    for (let i = expr.search(/\^\(\(?-?\d+\)?\/\(?\d*[13579]\)?\)/), guard = 0; i > 0 && guard++ < 50; i = expr.search(/\^\(\(?-?\d+\)?\/\(?\d*[13579]\)?\)/)) {
+      const m = /^\^\(\(?(-?\d+)\)?\/\(?(\d+)\)?\)/.exec(expr.slice(i));
+      let s = i - 1;
+      if (expr[s] === ')') { for (let d = 0; s >= 0; s--) { if (expr[s] === ')') d++; else if (expr[s] === '(' && !--d) break; } if (s < 0) return null; }
+      else { while (s > 0 && /[\w.]/.test(expr[s - 1])) s--; if (!/[\w.]/.test(expr[s])) return null; }
+      expr = expr.slice(0, s) + 'oddroot(' + expr.slice(s, i) + ',' + m[1] + ',' + m[2] + ')' + expr.slice(i + m[0].length);
+    }
+    let ok = true;
+    const js = expr.replace(/[a-zA-Z_]\w*/g, w => w === v ? '__v' : F[w] || (ok = false, w)).replace(/\^/g, '**');
+    if (!ok || /[^\d.,\s+\-*/()_vMathsqrtlogexpbPIE]/.test(js)) return null;
+    try { const f = new Function('__v', 'const __r=(a,p,q)=>(a<0&&q%2?(p%2?-1:1):1)*Math.abs(a)**(p/q);return ' + js); f(1.234); return f; } catch { return null; }
+  }
+  // nerdamer misses some exponent equations (70000·0,28^x = 100): find the roots by number search instead
+  function expNum(p, v) {
+    if (!new RegExp('\\^\\s*\\(?[^=]*' + v).test(p)) return null;
+    return numRoots(p, v);
+  }
+  // reaaliset nollakohdat merkin vaihdoksista (x³−3x+1 = 0, eˣ = x+2), kun tarkkaa ratkaisua ei löydy
+  function numRoots(p, v) {
+    let g = jsFn(p, v); if (!g) try { g = nerdamer(p).buildFunction([v]); } catch { return null; }
+    const f = x => { let y; try { y = g(x); } catch { return NaN; } return typeof y === 'number' ? y : NaN; };
+    const xs = [];   // dense near 0, sparse far away, from -10 million to 10 million
+    for (let i = -4000; i <= 4000; i++) xs.push(Math.sign(i) * (Math.exp(Math.abs(i) * Math.log(1e7 + 1) / 4000) - 1));
+    const out = [];
+    for (let i = 0; i < xs.length - 1; i++) {
+      const a = f(xs[i]), b = f(xs[i + 1]);
+      if (!isFinite(a) || !isFinite(b)) continue;
+      if (a === 0) { const c = i ? f(xs[i - 1]) : NaN; if (c && b && c * b < 0) out.push(xs[i]); continue; }   // a real crossing, not a number too small to store
+      if (a * b > 0 || b === 0) continue;
+      let lo = xs[i], hi = xs[i + 1], fl = a;
+      for (let k = 0; k < 100; k++) { const m = (lo + hi) / 2, fm = f(m); if (fl * fm <= 0) hi = m; else { lo = m; fl = fm; } }
+      const m = (lo + hi) / 2;
+      if (Math.abs(f(m)) <= 1e-6 * Math.max(Math.abs(a), Math.abs(b))) out.push(m);   // not a jump over a pole
+    }
+    return out.length ? out.map(x => String(Math.round(x * 1e12) / 1e12)) : null;
+  }
+  // käykö luku n yhtälöön L = R (desimaalifunktiot): sivut lähes samat suhteessa kokoonsa, tai molemmat lähes 0
+  // ja ero on pieni verrattuna siihen, miten ero muuttuu lähellä (x·eˣ = 0 kohdassa 0; ei 0,5ˣ = 0 kohdassa 2000)
+  function sameAt(L, R, n) {
+    const l = L(n), r = R(n); if (!isFinite(l) || !isFinite(r)) return false;
+    const s = Math.max(Math.abs(l), Math.abs(r));
+    if (s > 1e-300 && Math.abs(l - r) <= 1e-7 * s) return true;
+    const h = 1e-4 * Math.max(1, Math.abs(n)), d = Math.max(...[n - h, n + h].map(t => Math.abs(L(t) - R(t))).filter(isFinite), 0);
+    return d > 1e-300 && Math.abs(l - r) <= 1e-6 * d;
+  }
   function trigNum(p, v, C) {
     if (!/(?:^|[^a-z])(?:sin|cos|tan|cot|sec|csc)d?\(/.test(p)) return null;
-    const isDeg = /(?:sin|cos|tan|cot|sec|csc)d\(/.test(p), F = isDeg ? 360 : 2 * Math.PI;
+    const isDeg = /(?:sin|cos|tan|cot|sec|csc)d\(/.test(p), F1 = isDeg ? 360 : 2 * Math.PI;
     let g; try { g = nerdamer(p).buildFunction([v]); } catch { return null; }
     const f = x => { let y; try { y = g(x); } catch { return NaN; } return typeof y === 'number' ? y : NaN; };
-    for (const t of [0.37, 1.91, 4.3]) { const a = f(t * F / 7), b = f(t * F / 7 + F); if (!isFinite(a) || Math.abs(a - b) > 1e-7 * Math.max(1, Math.abs(a))) return null; }
-    const N = 7200, h = F / N, ys = [], rs = [];
+    // jakso: yksi kierros, tai 2–4 kierrosta kun kulma on jaettu (sin(x/2) toistuu 720°:n välein)
+    const toistuu = F => [0.37, 1.91, 4.3].every(t => { const a = f(t * F1 / 7), b = f(t * F1 / 7 + F); return isFinite(a) && Math.abs(a - b) <= 1e-7 * Math.max(1, Math.abs(a)); });
+    const F = [1, 2, 3, 4].map(k => k * F1).find(toistuu); if (!F) return null;
+    const N = 7200 * F / F1, h = F / N, ys = [], rs = [];
     for (let i = 0; i <= N + 1; i++) ys.push(f(i * h));
     const add = x => { x = ((x % F) + F) % F; if (F - x < 1e-7) x = 0; if (!rs.some(r => Math.abs(r - x) < 1e-6 || Math.abs(Math.abs(r - x) - F) < 1e-6)) rs.push(x); };
     for (let i = 0; i < N; i++) {
@@ -1334,14 +1651,14 @@ const Calc = (() => {
         const m = (lo + hi) / 2; if (Math.abs(f(m)) < 1e-10) add(m);
       }
     }
-    const snap = x => { const k = isDeg ? x : x / Math.PI * 180, r = Math.round(k * 1e5) / 1e5; return Math.abs(k - r) < 1e-6 ? (isDeg ? r : r * Math.PI / 180) : x; };
+    const snap = x => { const k = isDeg ? x : x / Math.PI * 180, r = Math.round(k * 1e3) / 1e3; return Math.abs(k - r) < 1e-6 ? (isDeg ? r : r * Math.PI / 180) : x; };
     let xs = rs.map(snap).sort((a, b) => a - b);
     if (!xs.length) return '\\Leftrightarrow \\text{ei ratkaisua}';
     // lyhin jakso F/k, jolla ratkaisujoukko toistuu
     let per = F;
     for (let k = 12; k >= 2; k--) { const P = F / k; if (xs.every(x => xs.some(y => { const d = (((y - x - P) % F) + F) % F; return d < 1e-5 || F - d < 1e-5; }))) { per = P; break; } }
     xs = xs.filter(x => x < per - 1e-7);
-    const show = x => isDeg ? fmtNum(Math.round(x * 1e7) / 1e7) + '^{\\circ}' : (niceNum(x, true, false) ?? fmtNum(x));
+    const show = x => isDeg ? fmtNum(x) + '^{\\circ}' : (niceNum(x, true, false) ?? fmtNum(x));
     const zero = x => Math.abs(x) < 1e-9;
     if (C && C.lo !== undefined && C.hi !== undefined) {
       const list = [];
@@ -1370,10 +1687,37 @@ const Calc = (() => {
         else if (Dn === 0) list = [simp('-(' + B + ')/(2*(' + A + '))')];
         else list = ['+', '-'].map(s => simp('(-(' + B + ')' + s + 'sqrt(' + D + '))/(2*(' + A + '))'));
       }
+      // pure power A·x^n + B = 0 (a^5730 = 1/2): x = ⁿ√(−B/A), and also the negative root when n is even
+      if (d > 2) {
+        // shape check with test numbers for the other letters (a^5730·m = 0,5m): f(x) = f(0) + (f(1) − f(0))·x^d
+        const others = vars(p).filter(u => u !== v);
+        const shape = k => { const q = p.replace(/[a-zA-Z_]\w*/g, w => others.includes(w) ? '(' + (k ? 2.7 + 0.31 * others.indexOf(w) : 1.3 + 0.17 * others.indexOf(w)) + ')' : w);
+          let g = jsFn(q, v); if (!g) g = nerdamer(q).buildFunction([v]);
+          const b = g(0), a = g(1) - b; return a !== 0 && [-1, 0.9, 1.01, -1.01].every(x => { const y = g(x), w = a * Math.pow(x, d) + b; return isFinite(y) && Math.abs(y - w) <= 1e-9 * Math.max(1, Math.abs(w)); }); };
+        if (shape(0) && shape(1)) {
+          const B = simp(nerdamer(p, {[v]: '0'}).toString()), A = simp(nerdamer(p, {[v]: '1'}).toString() + '-(' + B + ')');
+          const c = simp('-(' + B + ')/(' + A + ')'); let cn = null; try { cn = numeric(c); } catch {}
+          if (cn === null) { const r = simp('(' + c + ')^(1/' + d + ')'); list = d % 2 ? [r] : [r, simp('-(' + r + ')')]; }
+          else { const r = cn === 0 ? '0' : simp('(' + (cn < 0 ? '-(' + c + ')' : c) + ')^(1/' + d + ')');
+            list = cn === 0 ? ['0'] : d % 2 ? [cn < 0 ? simp('-(' + r + ')') : r] : cn < 0 ? [] : [r, simp('-(' + r + ')')]; }
+        }
+      }
     } catch {}
     if (!list) {
       const sols = nerdamer.solve(eq || p, v);
       try { list = sols.symbol.elements.map(e => e.toString()); } catch { list = String(sols).replace(/^\[|\]$/g, '').split(',').filter(Boolean); }
+      // nerdamer misses some square-root equations (3 = sqrt(7/x)): square both sides, then keep only roots that fit the original
+      // (nerdamer can also give a wrong root for them, so every root is checked in the original equation)
+      const sides = (eq || '').split('=');
+      if (sides.length === 2 && /sqrt/.test(eq)) {
+        const fits = x => { try { const l = numeric(nerdamer(sides[0], {[v]: '(' + x + ')'}).toString()), r = numeric(nerdamer(sides[1], {[v]: '(' + x + ')'}).toString()); return l !== null && r !== null && Math.abs(l - r) <= 1e-7 * Math.max(1, Math.abs(l), Math.abs(r)); } catch { return false; } };
+        const numericOnly = list.every(x => { try { return numeric(x) !== null; } catch { return false; } });
+        if (numericOnly) list = list.filter(fits);
+        if (!list.length) {
+          let sq = []; try { const s2 = nerdamer.solve('(' + sides[0] + ')^2=(' + sides[1] + ')^2', v); try { sq = s2.symbol.elements.map(e => e.toString()); } catch { sq = String(s2).replace(/^\[|\]$/g, '').split(',').filter(Boolean); } } catch {}
+          list = sq.filter(fits);
+        }
+      }
     }
     const nv = x => { try { return numeric(x); } catch { return null; } };
     list.sort((p, q) => (nv(p) ?? 0) - (nv(q) ?? 0));
@@ -1443,6 +1787,187 @@ const Calc = (() => {
     r = r.filter(x => { try { const n = Number(nerdamer(p, {...test, [v]: '(' + nerdamer(x, test).toString() + ')'}).evaluate().text('decimals')); return !isFinite(n) || Math.abs(n) < 1e-6; } catch { return true; } });
     return r.length ? r : null;
   }
+  // Giac (giac-lataa.js) ratkaisee yhtälön, kun se on latautunut. Vastaus muutetaan nerdamerin muotoon
+  // (ln → log, 1.2e-05 → 1.2*10^(-5)); null = Giac ei ole käytössä tai vastaus on muodossa, jota ei osata näyttää
+  function giacEval(s) { return typeof self !== 'undefined' && self.giacEval ? self.giacEval(s) : null; }
+  function splitTop(s) { const out = []; let d = 0, st = 0;
+    for (let k = 0; k < s.length; k++) { const c = s[k]; if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--; else if (c === ',' && !d) { out.push(s.slice(st, k)); st = k + 1; } }
+    out.push(s.slice(st)); return out.map(x => x.trim()); }
+  function fromGiac(x) {
+    if (/undef|inf|rootof|piecewise|when|sign|%|\?|assume|"|erf|\bi\b|\b(?:Ci|Si|Ei|Gamma|LambertW)\(/.test(x)) return null;
+    x = x.replace(/\bln\(/g, 'log(').replace(/(\d(?:\.\d+)?)e([+-]?\d+)/g, '($1*10^($2))');
+    try { nerdamer(x); return x; } catch { return null; }
+  }
+  // desimaalit tarkoiksi murtoluvuiksi, jotta Giac antaa tarkan vastauksen (a^5730 = 0,5 → 1/2^(1/5730)); present() päättää, näytetäänkö se
+  const toG = p => p.replace(/(\d+)\.(\d+)/g, (m, a, b) => '(' + a + b + '/1' + '0'.repeat(b.length) + ')');
+  function giacExpr(cmd) { const r = giacEval(cmd); return r ? fromGiac(r.trim()) : null; }
+  // yhtälöryhmä: [{x: '2', y: '3'}, ...], [] = ei ratkaisua, 'many' = äärettömän monta, null = ei vastausta
+  function giacSys(eqs, vs) {
+    const r = giacEval('solve([' + eqs.map(toG).join(',') + '],[' + vs.join(',') + '])'); if (!r) return null;
+    const m = /^(?:list)?\[([\s\S]*)\]$/.exec(r.trim()); if (!m) return null;
+    if (!m[1].trim()) return [];
+    const out = [];
+    for (const row of splitTop(m[1])) { const k = /^\[([\s\S]*)\]$/.exec(row); if (!k) return null;
+      const vals = splitTop(k[1]).map(fromGiac); if (vals.length !== vs.length || vals.some(x => x === null)) return null;
+      if (vals.some(x => vars(x).some(u => vs.includes(u)))) return 'many';
+      out.push(Object.fromEntries(vs.map((v, i) => [v, vals[i]]))); }
+    return out;
+  }
+  function giacRoots(p, v) {
+    const r = giacEval('solve(' + toG(p) + '=0,' + v + ')'); if (!r) return null;
+    const m = /^(?:list)?\[([\s\S]*)\]$/.exec(r.trim()); if (!m) return null;
+    if (!m[1].trim()) return [];
+    if (/[<>]/.test(m[1])) return {ineq: splitTop(m[1])};   // |x−2| = x−2 → [x>2, 2]
+    const out = splitTop(m[1]).map(fromGiac); return out.some(x => x === null) ? null : out;
+  }
+  // ---------- analyysi: raja-arvot, määrätyt integraalit, siisti vastaus ----------
+  // vastaus, joka ei ole luku ("raja-arvoa ei ole"): heitetään ja run() näyttää sen vastauksena
+  function ansErr(t) { const e = new Err(t.replace(/\\text\{([^{}]*)\}/g, '$1')); e.tex = t; return e; }
+  // nerdamerin englanninkieliset virheet suomeksi
+  function fin(e) { if (!e || e instanceof Err) return e; const m = String(e.message || e);
+    return new Err(/division by zero/i.test(m) ? 'Nollalla ei voi jakaa.' : /is undefined|undefined for/i.test(m) ? 'Ei määritelty tällä arvolla (esim. tan 90°, ln 0, 0⁰).' : 'En osaa laskea tätä. Tarkista kaava.'); }
+  const GI = x => toG(String(x)).replace(/\bInfinity\b/g, 'inf');
+  // Giac lisää joskus likiarvon perään: "1/2*pi=1.5707963" → "1/2*pi"
+  const GR = r => r && r.trim().replace(/=\s*[-+]?\d[\d.]*(?:e[-+]?\d+)?$/, '');
+  // nopea desimaalifunktio yhdestä kirjaimesta (myös trigonometria); null jos lauseketta ei osata
+  const NF = {sqrt: Math.sqrt, log: Math.log, log10: Math.log10, exp: Math.exp, abs: Math.abs, sign: Math.sign, floor: Math.floor, ceil: Math.ceil,
+    sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
+    cot: x => 1 / Math.tan(x), sec: x => 1 / Math.cos(x), csc: x => 1 / Math.sin(x), pi: Math.PI, e: Math.E,
+    sinD: x => Math.sin(x * Math.PI / 180), cosD: x => Math.cos(x * Math.PI / 180), tanD: x => Math.tan(x * Math.PI / 180), asinD: Math.asin, acosD: Math.acos, atanD: Math.atan};
+  function numFn(expr, v) {
+    let ok = true;
+    const js = String(expr).replace(/[a-zA-Z_]\w*/g, w => w === v ? '__v' : w in NF ? 'NF.' + w : (ok = false, w)).replace(/\^/g, '**');
+    if (!ok || /[^\w.\s+\-*/(),]/.test(js)) return null;
+    try { const f = new Function('NF', '__v', 'return ' + js); f(NF, 1.234); return x => f(NF, x); } catch { return null; }
+  }
+  // numeerinen integraali (Gauss–Kronrod 7–15, väli puolitetaan); ok = false: ei suppene, nan: funktio ei ole määritelty välillä
+  function numInt(f, a, b) {
+    const X = [0.991455371120813, 0.949107912342759, 0.864864423359769, 0.741531185599394, 0.586087235467691, 0.405845151377397, 0.207784955007898, 0];
+    const WK = [0.022935322010529, 0.063092092629979, 0.10479001032225, 0.140653259715525, 0.169004726639267, 0.190350578064785, 0.204432940075298, 0.209482141084728];
+    const WG = [0, 0.12948496616887, 0, 0.279705391489277, 0, 0.381830050505119, 0, 0.417959183673469];
+    const seg = (a, b) => { const c = (a + b) / 2, h = (b - a) / 2; let K = 0, G = 0, bad = false, nan = false;
+      for (let j = 0; j < 8; j++) for (const x of j === 7 ? [c] : [c - h * X[j], c + h * X[j]]) { const y = f(x); if (!isFinite(y)) { bad = true; if (isNaN(y)) nan = true; } K += WK[j] * y; G += WG[j] * y; }
+      if (c + h * X[6] === c) bad = true;   // väli kutistui laskentatarkkuuden rajalle: napa (tan x kohdassa π/2)
+      return {a, b, K: bad ? 0 : K * h, E: bad ? Infinity : Math.abs((K - G) * h), nan}; };
+    const list = [seg(a, b)];
+    for (let n = 0; ; n++) {
+      let tot = 0, err = 0, w = 0;
+      for (let k = 0; k < list.length; k++) { tot += list[k].K; err += list[k].E; if (list[k].E > list[w].E) w = k; }
+      if (err <= 1e-11 * Math.max(1, Math.abs(tot))) return {val: tot, ok: true};
+      if (n >= 2500) return {val: tot, ok: err <= 1e-7 * Math.max(1, Math.abs(tot)), nan: err > 1e-7 * Math.max(1, Math.abs(tot)) && list.some(s => s.nan)};
+      const s = list[w], m = (s.a + s.b) / 2; list.splice(w, 1, seg(s.a, m), seg(m, s.b));
+    }
+  }
+  // määrätty integraali: Giac (tarkka), tarkistus numeerisesti; erikoiskohta välillä → hajaantuu
+  function defInt(body, lo, hi, v) {
+    const old = 'defint(' + body + ',' + lo + ',' + hi + ',' + v + ')';
+    const div = () => ansErr('\\text{integraali hajaantuu (sillä ei ole äärellistä arvoa)}');
+    const gt = GR(giacEval('simplify(integrate(' + GI(body) + ',' + v + ',' + GI(lo) + ',' + GI(hi) + '))'));
+    if (gt && /^[+-]?infinity$/.test(gt)) throw div();
+    const g = gt ? fromGiac(gt) : null;
+    const nn = x => { try { const n = numeric(x); return n !== null && isFinite(n) ? n : null; } catch { return null; } };
+    const free = !vars(body).some(u => u !== v && u !== 'Infinity') && !vars(lo).length && !vars(hi).length && !/Infinity/.test(lo + hi);
+    const a = free ? nn(lo) : null, b = free ? nn(hi) : null;
+    if (a === null || b === null) return g || old;
+    if (a === b) return '0';
+    let f0 = numFn(body, v); if (!f0) try { f0 = nerdamer(body).buildFunction([v]); } catch {}
+    if (!f0) return g || old;
+    const f = x => { try { const y = f0(x); return typeof y === 'number' ? y : NaN; } catch { return NaN; } };
+    const q = numInt(f, Math.min(a, b), Math.max(a, b));
+    if (q.nan) throw ansErr('\\text{integraali ei ole määritelty (funktio ei ole määritelty koko välillä)}');
+    if (!q.ok) throw div();
+    const val = (a < b ? 1 : -1) * q.val, close = x => x !== null && Math.abs(x - val) <= 1e-6 * Math.max(1, Math.abs(val));
+    if (g && close(nn(g))) { let e = null; try { e = nerdamer('expand(' + g + ')').toString(); } catch {} return e && texLen(e) < texLen(g) ? e : g; }
+    if (close(nn(old))) return old;
+    approxHit = true; return String(val);
+  }
+  // raja-arvo Giacilla; dir 1 = oikealta, -1 = vasemmalta. null = Giac ei käytössä (nerdamer laskee)
+  function giacLimit(body, v, to, dir) {
+    const L = d => { const r = giacEval('limit(' + GI(body) + ',' + v + ',' + GI(to) + (d ? ',' + d : '') + ')'); return r === null ? null : GR(r); };
+    const r0 = L(dir); if (r0 === null) return null;
+    const k = r => r === '+infinity' ? 'Infinity' : r === '-infinity' ? '-Infinity' : r === 'infinity' ? 'U' : /bounded_function|undef/.test(r) ? null : fromGiac(r);
+    const a = k(r0); if (a && a !== 'U') return a;
+    const T = x => x === 'Infinity' ? '\\infty' : x === '-Infinity' ? '-\\infty' : tex(x), at = '\\lim_{' + v + '\\to ' + T(to);
+    if (!dir && !/Infinity/.test(to)) { const lf = k(L(-1)), rg = k(L(1));
+      if (lf && rg && lf !== 'U' && rg !== 'U') { if (lf === rg) return lf;
+        throw ansErr('\\text{raja-arvoa ei ole:}\\ ' + at + '^{-}}=' + T(lf) + ',\\ ' + at + '^{+}}=' + T(rg)); } }
+    if (/bounded_function/.test(r0)) throw ansErr('\\text{raja-arvoa ei ole (lauseke heilahtelee)}');
+    if (a === 'U' || /undef|Unidirectional/.test(r0)) throw ansErr('\\text{raja-arvoa ei ole}');
+    return null;
+  }
+  // tekstikirjan muoto: polynomi auki kerrottuna, muuten lyhin nerdamerin ja Giacin muodoista (ei sec/csc);
+  // desimaalit syötteessä → desimaalit vastauksessa
+  const texLen = x => { try { return tex(x).replace(/\\cdot|\\left|\\right|\s/g, '').length + (/\b(?:sec|csc)\(/.test(x) ? 1000 : 0); } catch { return Infinity; } };
+  function sameVal(x, r) {
+    const vs = vars(r); if (vars(x).some(u => !vs.includes(u))) return false;
+    for (const t of [0.37, 1.91]) { const sub = {}; vs.forEach((u, i) => { sub[u] = String(t + i * 0.73); });
+      let p, q; try { p = Number(nerdamer(r, sub).evaluate().text('decimals')); q = Number(nerdamer(x, sub).evaluate().text('decimals')); } catch { return false; }
+      if (isFinite(p) && !(Math.abs(p - q) <= 1e-7 * Math.max(1, Math.abs(p)))) return false; }
+    return true;
+  }
+  const isPoly = e => !/[a-zA-Z]\w*\(/.test(e) && !/\/\s*\(?[^)]*[a-zA-Z]/.test(e.replace(/\(\d+\/\d+\)/g, '1')) && !/\^\s*\(?\s*-|\^\s*\(\s*\d+\/\d+/.test(e);
+  function pretty(r, latex, poly = true) {
+    try { r = nerdamer(r).toString(); } catch {}
+    const cands = [r]; let sx = null; try { sx = simp(r); cands.push(sx); } catch {}
+    // myös: osoittaja auki ja nimittäjä tekijöinä ((−2x²+6x+2)/(x²+1)²), ja sievennetyn tekijät (eˣ/(eˣ+1)²)
+    for (const c of ['simplify(R)', 'factor(R)', 'factor(simplify(R))', 'numer(simplify(R))/factor(denom(simplify(R)))']) {
+      let g = giacExpr(c.replace(/R/g, toG(r))); if (g && /\/factor\(/.test(c)) g = '(' + g.replace(/\/(?=[^/]*$)/, ')/(') + ')';
+      if (g && !/\d{7,}/.test(g) && sameVal(g, r)) cands.push(g); }
+    const score = c => texLen(c) + (/sqrt/.test(c) && !/sqrt/.test(r) ? 1000 : 0);
+    let best = cands[0]; for (const c of cands) if (score(c) < score(best)) best = c;
+    if (poly) { let e = null; try { e = nerdamer('expand(' + r + ')').toString(); } catch {} if (e && isPoly(e) && texLen(e) <= texLen(best) * 1.25 + 4) best = e; }
+    return decTex(best, latex);
+  }
+  // 1/25·x² → 0,04x², kun syötteessä on desimaaleja ja murtoluvut ovat lyhyitä desimaaleja
+  function decTex(r, latex) {
+    let t = tex(r);
+    if (/\d(?:\{,\}|\.|,)\d/.test(latex || '') && !/[a-zA-Z]\w*\(/.test(r))
+      t = t.replace(/\\frac\{(?:(\d+)(?: \\cdot )?)?((?:[^{}+\-]|\{[^{}]*\})*)\}\{(\d+)\}/g, (m, p, x, q) => {
+        if (!p && !x) return m; let k = +q; while (k % 2 === 0) k /= 2; while (k % 5 === 0) k /= 5;
+        const d = (p ? +p : 1) / +q, ds = String(parseFloat(d.toPrecision(12)));
+        if (k !== 1 || ds.length > 8 || /\\frac/.test(x)) return m;
+        return fmtNum(d) + (x ? ' \\cdot ' + x.replace(/^\s*\\cdot\s*/, '') : '');
+      });
+    t = t.replace(/(\\(?:ln|lg|sin|cos|tan|arcsin|arccos|arctan)\\left\((?:(?!\\left|\\right).)*\\right\)(?:\^\{\d+\})?) \\cdot ([a-z](?:\^\{[^{}]*\})?)(?![a-zA-Z{^\\])/g, '$2 \\cdot $1');   // ln(x)·x → x·ln(x)
+    return t.replace(/(\{|^)-((?:[^+\-{}]|\{[^{}]*\})+?)\+(\d+)(?=\}|$)/g, '$1$3-$2');   // -x+1 → 1-x
+  }
+  // Giacin väli-vastaus ([x>2, 2], [((x>=1) and (x<2)), 2, 1]) epäyhtälöksi kuten kirjassa (x ≥ 2); null = ei osata
+  function giacIneq(items, v, lhs, rhs, C) {
+    const wraps = s => { if (s[0] !== '(' || !s.endsWith(')')) return false; for (let k = 0, d = 0; k < s.length - 1; k++) { if (s[k] === '(') d++; else if (s[k] === ')' && !--d) return false; } return true; };
+    const unp = s => { s = s.trim(); while (wraps(s)) s = s.slice(1, -1).trim(); return s; };
+    const num = e => { const x = fromGiac(e); if (x === null || vars(x).length) return null; let n = null; try { n = numeric(x); } catch {} return n === null || !isFinite(n) ? null : {x, n}; };
+    const segs = [];
+    for (const it of items) {
+      const s = {a: -Infinity, aIn: false, b: Infinity, bIn: false};
+      const pieces = unp(it).split(/\s+and\s+/).map(unp);
+      if (pieces.length === 1 && !/[<>]/.test(pieces[0])) { const p = num(pieces[0]); if (!p) return null; segs.push({a: p.n, aIn: true, b: p.n, bIn: true, at: p.x, bt: p.x}); continue; }
+      for (const pc of pieces) {
+        const m = /^(.+?)(<=|>=|<|>)(.+)$/.exec(pc); if (!m) return null;
+        let [, l, op, r] = m; l = l.trim(); r = r.trim();
+        if (r === v) { [l, r] = [r, l]; op = {'<': '>', '>': '<', '<=': '>=', '>=': '<='}[op]; }
+        if (l !== v) return null;
+        const p = num(r); if (!p) return null;
+        if (op[0] === '>') { s.a = p.n; s.at = p.x; s.aIn = op === '>='; } else { s.b = p.n; s.bt = p.x; s.bIn = op === '<='; }
+      }
+      segs.push(s);
+    }
+    if (C && C.lo !== undefined) for (const s of segs) if (C.lo > s.a) { s.a = C.lo; s.at = String(C.lo); s.aIn = C.ok(C.lo); }
+    if (C && C.hi !== undefined) for (const s of segs) if (C.hi < s.b) { s.b = C.hi; s.bt = String(C.hi); s.bIn = C.ok(C.hi); }
+    let list = segs.filter(s => s.a < s.b || (s.a === s.b && s.aIn && s.bIn)).sort((p, q) => p.a - q.a || q.aIn - p.aIn);
+    const out = [];
+    for (const s of list) { const t = out[out.length - 1];
+      if (t && (s.a < t.b || (Math.abs(s.a - t.b) < 1e-12 && (s.aIn || t.bIn)))) { if (s.b > t.b || (s.b === t.b && s.bIn)) { t.b = s.b; t.bt = s.bt; t.bIn = s.bIn; } if (Math.abs(s.a - t.a) < 1e-12 && s.aIn) t.aIn = true; }
+      else out.push({...s}); }
+    // tarkistus: yksi luku jokaiselta väliltä käy alkuperäiseen yhtälöön
+    const L = jsFn(lhs, v), R = jsFn(rhs, v);
+    if (L && R) for (const s of out) { const t = s.a === s.b ? s.a : s.a === -Infinity ? s.b - 1 : s.b === Infinity ? s.a + 1 : (s.a + s.b) / 2; if (!sameAt(L, R, t)) return null; }
+    if (!out.length) return '\\Leftrightarrow \\text{ei ratkaisua' + (C ? ', kun }' + C.tex : '}');
+    if (out.length === 1 && out[0].a === -Infinity && out[0].b === Infinity) return '\\Leftrightarrow \\text{tosi aina: kaikki luvut käyvät}';
+    const T = e => tex(e), le = inc => inc ? '\\le ' : '<';
+    return '\\Leftrightarrow ' + out.map(s => s.a === s.b ? v + '=' + T(s.at)
+      : s.a === -Infinity ? v + le(s.bIn) + T(s.bt) : s.b === Infinity ? v + (s.aIn ? '\\ge ' : '>') + T(s.at)
+      : T(s.at) + le(s.aIn) + v + le(s.bIn) + T(s.bt)).join('\\ \\lor\\ ');
+  }
   function solve(a, want, wantAll, cond) {
     const eqs = a.split(';').map(x => x.trim()).filter(Boolean);
     if (eqs.length > 1) {
@@ -1462,6 +1987,7 @@ const Calc = (() => {
       const list0 = wantAll && wantAll.length ? wantAll : all;
       // substitution first: finds every solution of systems like xy=6, x+y=5 and sees when there is none
       let ss = null; try { ss = subSolve(eqs.map(e => { const [l, rr] = e.split('='); return '(' + l + ')-(' + rr + ')'; }), list0); } catch {}
+      if (!ss) ss = giacSys(eqs, list0);
       if (ss && !ss.length) return {tex: '\\text{Ei ratkaisua}'};
       if (ss === 'many') return {tex: '\\text{Äärettömän monta ratkaisua (yhtälöt kertovat saman asian)}'};
       if (ss) {
@@ -1487,15 +2013,58 @@ const Calc = (() => {
     const eq = eqs[0];
     const [lhs, rhs] = eq.split('=');
     const p = '(' + lhs + ')-(' + rhs + ')';
-    const v = pickVar(p, want), allVars = vars(p);
+    let v = pickVar(p, want); const allVars = vars(p);
+    // no x and no choice made: a letter in an exponent is the one to solve (N₀·0,5^t = 0,1N₀ → t)
+    if (!want && !allVars.includes('x')) { const ex = allVars.find(u => new RegExp('\\^\\s*(?:\\([^()]*(?<![\\w])' + u + '(?![\\w])|' + u + '(?![\\w]))').test(p)); if (ex) v = ex; }
     const C = cond && cond.v === v ? cond : null;
     const cTex = C ? ',\\ \\text{kun }' + C.tex : '';
+    // sama lauseke molemmin puolin (x+1=x+1): tosi kaikilla luvuilla
+    { let z = null; try { z = nerdamer('expand(' + p + ')').toString(); } catch {} if (z === '0') return {vars: allVars, v, tex: '\\Leftrightarrow \\text{tosi aina: kaikki luvut käyvät}'}; }
     if (allVars.length === 1) { let tr = null; try { tr = trigSolve(p, v, C); } catch {} if (!tr) { try { tr = trigNum(p, v, C); } catch {} } if (tr) return {vars: allVars, v, tex: tr}; }
-    let rs = []; try { rs = roots(p, v, eq); } catch {}
+    let rs = [];
+    const gr = giacRoots(p, v);
+    if (gr && gr.ineq) { const t = giacIneq(gr.ineq, v, lhs, rhs, C); if (t) return {vars: allVars, v, tex: t}; }
+    const JL = allVars.length === 1 ? jsFn(lhs, v) : null, JR = JL && jsFn(rhs, v);
+    if (gr && gr.length && !gr.ineq) rs = gr; else { try { rs = roots(p, v, eq); } catch {} }
     if (!rs.length) { const h = halfRoots(p, v); if (h) rs = h; }
-    // pois ratkaisut, joissa alkuperäinen yhtälö ei ole määritelty (esim. jako nollalla: (x+1)/(x-1)=3 ei anna x=1)
+    rs = rs.filter(x => !vars(x).includes(v));   // eˣ = x+2 → "x = eˣ − 2" ei ole vastaus
+    // Giac sanoi "ei ratkaisua": nerdamerin juuret käyvät vain, jos ne todella toteuttavat yhtälön (∛x = −3 → −27)
+    // (muut kirjaimet: tarkistus testiluvuilla; Giac voi erehtyä myös nimistä kuten lambda)
+    if (gr && !gr.length && !(JL && JR)) { const test = {}; allVars.filter(u => u !== v).forEach((u, i) => { test[u] = String(1.3 + 0.17 * i); });
+      rs = rs.filter(x => { try { const n = Number(nerdamer(p, {...test, [v]: '(' + nerdamer(x, test).toString() + ')'}).evaluate().text('decimals')); return isFinite(n) && Math.abs(n) < 1e-9; } catch { return false; } }); }
+    // letter in an exponent (0,28^x, m·0,917^x = c): nerdamer often finds nothing or a wrong root (x = 0). So:
+    // 1) every root is checked in the equation (with test numbers for other letters, relative to the size of the sides),
+    // 2) A·bˣ + B = 0 with bˣ the only place of x → x = ln(−B/A) / ln b, 3) last resort: number search over a wide range
+    if (new RegExp('\\^\\s*(?:\\([^()]*(?<![\\w])' + v + '(?![\\w])|' + v + '(?![\\w]))').test(p)) {
+      const others = allVars.filter(u => u !== v), nn = x => { try { return numeric(x); } catch { return null; } };
+      const put = (e, k) => e.replace(/[a-zA-Z_]\w*/g, w => others.includes(w) ? '(' + (k ? 2.7 + 0.31 * others.indexOf(w) : 1.3 + 0.17 * others.indexOf(w)) + ')' : w);
+      const checks = [0, 1].map(k => [jsFn(put(lhs, k), v), jsFn(put(rhs, k), v)]), usable = checks.every(([L, R]) => L && R);
+      const fits = n => checks.every(([L, R]) => sameAt(L, R, n));
+      if (usable) rs = rs.filter(x => { const n = nn(x); return n === null || fits(n); });
+      if (!rs.length || rs.every(x => nn(x) === null)) { const re = new RegExp('(\\d+(?:\\.\\d+)?|[a-zA-Z]\\w*|\\([^()]*\\))\\^\\(?' + v + '\\)?(?![\\w.])', 'g'), bases = [...p.matchAll(re)].map(m => m[1]);
+        if (bases.length && bases.every(b => b === bases[0]) && !vars(bases[0]).includes(v)) {
+          const q = p.replace(re, '(tqz)');
+          if (!vars(q).includes(v)) try {
+            const d = Number(nerdamer('deg(expand(' + q + '),tqz)').toString());
+            const c = nerdamer('coeffs(expand(' + q + '),tqz)').symbol.elements.map(e => e.toString());
+            if (d === 1) { const t = simp('-(' + c[0] + ')/(' + c[1] + ')'), tn = nn(t), bn = nn(bases[0]);
+              if (!(tn !== null && tn <= 0) && !(bn !== null && (bn <= 0 || bn === 1))) { const r = 'log(' + t + ')/log(' + bases[0] + ')'; if (!usable || nn(r) === null || fits(nn(r))) rs = [r]; } }
+          } catch {}
+        } }
+      if (!rs.length && usable) { const e1 = expNum(put(p, 0), v), e2 = others.length ? expNum(put(p, 1), v) : e1;
+        if (e1 && e2 && e1.length === e2.length && e1.every((x, i) => Math.abs(x - e2[i]) < 1e-9 * Math.max(1, Math.abs(x)))) rs = e1.filter(x => fits(Number(x))); }
+    }
+    // ei tarkkaa ratkaisua (Giacin rootof, LambertW): reaaliset juuret numeerisesti, ensin merkin vaihdoksista, sitten Giacin fsolve
+    if (!rs.length && JL && JR) {
+      rs = numRoots(p, v) || [];
+      if (!rs.length) { const f = giacEval('fsolve(' + toG(p) + '=0,' + v + ')');
+        if (f) rs = f.replace(/^\[|\]$/g, '').split(',').map(s => s.trim()).filter(s => /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/.test(s)).map(s => String(Number(s))); }
+    }
+    // pois ratkaisut, jotka eivät toteuta alkuperäistä yhtälöä tai joissa se ei ole määritelty (jako nollalla: (x+1)/(x-1)=3 ei anna x=1)
     if (allVars.length === 1) rs = rs.filter(x => { let n = null; try { n = numeric(x); } catch {} if (n === null || !isFinite(n)) return true;
-      for (const side of [lhs, rhs]) { try { const val = Number(nerdamer(side, {[v]: String(n)}).evaluate().text('decimals')); if (!isFinite(val)) return false; } catch (e) { if (/division by zero|undefined/i.test(String(e && e.message))) return false; } }
+      if (JL && JR) return sameAt(JL, JR, n);
+      for (const side of [lhs, rhs]) { const jf = jsFn(side, v); if (jf) { if (!isFinite(jf(n))) return false; continue; }
+        try { const val = Number(nerdamer(side, {[v]: String(n)}).evaluate().text('decimals')); if (!isFinite(val)) return false; } catch (e) { if (/division by zero|undefined/i.test(String(e && e.message))) return false; } }
       return true; });
     let lettered = false;
     if (C) rs = rs.filter(x => { let n = null; try { n = numeric(x); } catch {} if (n === null || !isFinite(n)) { lettered = true; return true; } return C.ok(n); });
@@ -1503,7 +2072,8 @@ const Calc = (() => {
       // nerdamer antaa joskus vain pitkän murtoluvun (ln x = 1, e^x = 5): etsitään tarkka muoto
       if (/\d{6,}/.test(x)) { let n = null; try { n = numeric(x); } catch {}
         const t = n !== null && isFinite(n) && Math.abs(n - Math.round(n)) > 1e-9 ? niceNum(n, false, false) : null;
-        if (t) return v + '=' + t + '\\approx ' + fmtNum(n); }
+        if (t && !/\d{7,}/.test(t)) return v + '=' + t + '\\approx ' + fmtNum(n);
+        if (t) return v + '\\approx ' + fmtNum(n); }
       return v + present(x);
     });
     if (!parts.length) return {vars: allVars, v, tex: '\\Leftrightarrow \\text{ei ratkaisua' + (C ? ', kun }' + C.tex : '}')};
@@ -1527,13 +2097,81 @@ const Calc = (() => {
     r = n > 0 ? fr(Math.log(n), (p, q) => p === 0 || Math.abs(p) > 60 || (p === 1 && q === 1) ? null : 'e^{' + (q === 1 ? p : (p < 0 ? '-' : '') + '\\frac{' + Math.abs(p) + '}{' + q + '}') + '}') : null; if (r) return r;
     return null;
   }
+  // ∫1/x = ln|x|: logaritmin sisälle itseisarvo, ellei sisus ole aina positiivinen (esim. ln(x²+1))
+  function absLog(r, v) {
+    let out = '', i = 0;
+    while (i < r.length) {
+      const j = r.indexOf('log(', i);
+      if (j < 0 || /[a-zA-Z]/.test(r[j - 1] || '')) { if (j < 0) { out += r.slice(i); break; } out += r.slice(i, j + 4); i = j + 4; continue; }
+      let k = 0, e = j + 3; for (; e < r.length; e++) { if (r[e] === '(') k++; else if (r[e] === ')' && !--k) break; }
+      const arg = absLog(r.slice(j + 4, e), v);
+      let pos = true; for (const t of [-7.3, -2.1, -0.4, 0.6, 3.3, 9.1]) { let y = NaN; try { y = Number(nerdamer(arg, {[v]: t}).evaluate().text('decimals')); } catch {} if (!(y > 0)) { pos = false; break; } }
+      out += r.slice(i, j) + 'log(' + (pos ? arg : 'abs(' + arg + ')') + ')'; i = e + 1;
+    }
+    return out;
+  }
+  const lnAbs = t => t.replace(/\\left\(\\left\|/g, '\\left|').replace(/\\right\|\\right\)/g, '\\right|');
+  // asteina sin(π/12) näytetään sin 15°
+  function degTrig(x) {
+    const out = [], L = 'abcdefghijklmnopqrstuvwxyz'; let s = String(x), i = 0, m; const re = /\b(sin|cos|tan|cot)(d?)\(/g;
+    while ((m = re.exec(s)) && out.length < 26) {
+      let d = 0, e = m.index + m[0].length - 1; for (; e < s.length; e++) { if (s[e] === '(') d++; else if (s[e] === ')' && !--d) break; }
+      const arg = s.slice(m.index + m[0].length, e); if (!(m[2] || /\bpi\b/.test(arg)) || vars(arg).length) continue;
+      let n = null; try { n = numeric(arg); } catch {} if (n === null) continue;
+      const g = m[2] ? n : n * 180 / Math.PI, r = Math.round(g * 1e6) / 1e6; if (Math.abs(g - r) > 1e-9) continue;
+      out.push('\\' + m[1] + ' ' + fmtNum(r) + '^{\\circ}'); s = s.slice(0, m.index) + 'qdg' + L[out.length - 1] + s.slice(e + 1); re.lastIndex = m.index + 4;   // cosd(50) ja cos(5π/18) → cos 50°
+    }
+    if (!out.length) return null;
+    let t; try { t = tex(s); } catch { return null; }
+    out.forEach((o, k) => { t = t.replace(new RegExp('qdg' + L[k] + '(\\^)?', 'g'), (_, p) => p ? '\\left(' + o + '\\right)^' : o); });
+    return /qdg/.test(t) ? null : t;
+  }
+  // vastaus kirjan muotoon: \frac{\left(1-\sqrt{5}\right)}{2} → \frac{1-\sqrt{5}}{2}, -\sqrt{2}+1 → 1-\sqrt{2}, -\frac{-c+b}{a} → \frac{c-b}{a}
+  const TERM = '(?:[^{}+\\-=()]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})+';
+  function tidyTex(t) {
+    for (let i = t.indexOf('\\frac{\\left('), guard = 0; i >= 0 && guard++ < 20; i = t.indexOf('\\frac{\\left(', i + 1)) {
+      let d = 0, k = i + 6;
+      for (; k < t.length; k++) { if (t.startsWith('\\left(', k)) d++; else if (t.startsWith('\\right)', k) && !--d) break; }
+      if (k < t.length && t[k + 7] === '}') t = t.slice(0, i + 6) + t.slice(i + 12, k) + t.slice(k + 7);
+    }
+    t = t.replace(new RegExp('(^|\\{)-(' + TERM + ')\\+(' + TERM + ')(?=\\}|$)', 'g'), '$1$3-$2');
+    return t.replace(new RegExp('^-\\\\frac\\{(' + TERM + ')-(' + TERM + ')\\}'), '\\frac{$2-$1}');
+  }
+  // an exact fraction as a decimal, when it is short: whole numbers up to 40 digits (20!, 2⁶⁴), 4,8·10⁻¹⁹ (denominator only 2s and 5s)
+  function exactDec(s) {
+    const m = /^\(?(-?)(\d+)(?:\/(\d+))?\)?$/.exec(String(s).replace(/\s/g, ''));
+    if (!m) return null;
+    if (!m[3]) return m[2].length > 40 ? null : m[2].length <= 12 ? m[1] + m[2] : m[2].replace(/0+$/, '').length <= 10 ? fmtNum(parseFloat(m[1] + m[2])) : m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, '\\,');
+    let q = BigInt(m[3]), k = 0; while (q % 10n === 0n) { q /= 10n; k++; } while (q % 2n === 0n || q % 5n === 0n) { q /= q % 2n === 0n ? 2n : 5n; k++; }
+    if (q !== 1n) return null;
+    const d = BigInt(m[2]) * 10n ** BigInt(k) / BigInt(m[3]);   // value = d·10^-k exactly
+    if (String(d).replace(/0+$/, '').length > 10) return null;
+    return fmtNum(parseFloat(m[1] + d + 'e' + (-k)));
+  }
   function present(exact) {
-    const et = tex(exact);
+    let et = (deg && degTrig(exact)) || tidyTex(tex(exact));
     let n = null; try { n = numeric(exact); } catch {}
-    if (n === null) return '=' + et;
+    if (n === null) {
+      // kirjainvastaus neliöjuurineen: √E·√m·√2/m → √(2E/m), jos se on lyhyempi
+      if (/sqrt/.test(exact)) try { const s = simp('(' + exact + ')^2');
+        if (!/sqrt|\^\(?-?\d+\/|abs|\./.test(s)) { const test = {}; vars(exact).forEach((u, i) => { test[u] = String(1.3 + 0.17 * i); });
+          const a = Number(nerdamer(exact, test).evaluate().text('decimals')), b = Math.sqrt(Number(nerdamer(s, test).evaluate().text('decimals')));
+          const sg = Math.abs(a - b) < 1e-9 * Math.max(1, b) ? '' : Math.abs(a + b) < 1e-9 * Math.max(1, b) ? '-' : null;
+          const c = sg === null ? null : sg + '\\sqrt{' + tidyTex(tex(s)) + '}';
+          if (c && c.length < et.length) et = c.replace(/(\d) \\cdot ([a-zA-Z\\])/g, '$1$2'); } } catch {}
+      return '=' + et;
+    }
     const nt = fmtNum(n);
-    if (Math.abs(n - Math.round(n)) < 1e-9 && Math.abs(n) < 1e15) return '=' + fmtNum(Math.round(n));
-    if (/\d{7,}/.test(exact) || /\\ln|\\lg|\\mathrm|!/.test(et)) return '\\approx ' + nt;
+    const ed = exactDec(exact);
+    if (ed && (!/\//.test(exact) || /\d{7,}/.test(exact))) return '=' + ed;
+    if (Math.abs(n - Math.round(n)) < 1e-9 && Math.abs(n) < 1e15 && Math.round(n) !== 0) return '=' + fmtNum(Math.round(n));
+    // arcsin ½ = π/6 (radiaaneina)
+    if (/\\arc/.test(et) && !/180/.test(String(exact))) { const t = niceNum(n, true, false); if (t && /\\pi/.test(t)) return '=' + t + '\\approx ' + nt; }
+    // sin(arcsin 0,5) left as it is: a simple fraction instead
+    if (/\\(?:arc)?(?:sin|cos|tan)/.test(et)) for (let k = 2; k <= 12; k++) if (Math.abs(n * k - Math.round(n * k)) < 1e-10) return '=' + tex(Math.round(n * k) + '/' + k) + '\\approx ' + nt;
+    if (/\d{7,}/.test(exact) || /\d{4,}\^\(?-?\d+\/\d+/.test(exact) || (/\\ln|\\lg/.test(et) && (/\d{3,}/.test(exact) || (et.match(/\\ln|\\lg/g) || []).length > 2 || et.length > 60)) || /\\mathrm|!/.test(et)) {
+      // pitkä tarkka muoto (ln 5/(ln 2+ln 5), 0,6931471806): lyhyt muoto, jos sellainen on (lg 5, ln 2)
+      const t = niceNum(n, false, false); return (t && !/\d{5,}/.test(t) ? '=' + t : '') + '\\approx ' + nt; }
     if (et === nt) return '=' + et;
     return '=' + et + '\\approx ' + nt;
   }

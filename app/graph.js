@@ -51,7 +51,7 @@ class Plot {
   }
   static label(v, step) {
     const dec = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
-    return (Math.abs(v) < step / 1e6 ? 0 : v).toFixed(dec).replace('.', ',').replace(/^-/, '−');
+    return (Math.abs(v) < step / 1e6 ? 0 : v).toFixed(dec).replace('.', typeof Kieli === 'undefined' || Kieli.pilkku ? ',' : '.').replace(/^-/, '−');
   }
 
   draw() {
@@ -147,7 +147,7 @@ class Plot {
     const order = this.hover ? [this.hover, ...this.pts.filter(q => q !== this.hover)] : this.pts;
     for (const q of order) {
       if (!showAll && q !== this.hover) continue;
-      const t = (q === this.hover ? q.kind + ' ' : '') + '(' + Plot.num(q.x) + '; ' + Plot.num(q.y) + ')';
+      const t = (q === this.hover ? q.kind + ' ' : '') + '(' + Plot.num(q.x) + (typeof Kieli === 'undefined' || Kieli.pilkku ? '; ' : ', ') + Plot.num(q.y) + ')';
       const w = g.measureText(t).width + 4, h = 14;
       const spots = [[6, -h - 4], [6, 4], [-w - 6, -h - 4], [-w - 6, 4]].map(([dx, dy]) => ({x: Math.min(Math.max(q.px + dx, 2), W - w - 2), y: Math.min(Math.max(q.py + dy, 2), H - h - 2), w, h}));
       const box = spots.find(b => !placed.some(p => hit(b, p)) && !this.pts.some(o => o !== q && hit(b, {x: o.px - 4, y: o.py - 4, w: 8, h: 8})))
@@ -161,7 +161,7 @@ class Plot {
 
   static num(v) {
     const r = Math.round(v * 1000) / 1000;
-    return (Math.abs(r) < 1e-9 ? 0 : r).toString().replace('.', ',').replace(/^-/, '−');
+    return (Math.abs(r) < 1e-9 ? 0 : r).toString().replace('.', typeof Kieli === 'undefined' || Kieli.pilkku ? ',' : '.').replace(/^-/, '−');
   }
 
   // numeric search in the visible range; c = function index (−1 = intersection)

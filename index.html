@@ -2,67 +2,201 @@
 <html lang="fi">
 <head>
 <meta charset="utf-8">
-<title>Laskuvihko</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laskuvihko – matikan ja fysiikan laskin lukioon: välivaiheet, yksiköt ja kuvaajat</title>
+<meta name="description" content="Laskuvihko on lukion matematiikan ja fysiikan vihko, joka laskee. Yhtälön ratkaisu välivaiheineen, yksikkömuunnokset, kuvaajat, derivaatat ja integraalit. Ilmainen selaimessa ja Macilla.">
+<meta property="og:title" content="Laskuvihko – vihko, joka osaa laskea">
+<meta property="og:description" content="Lukion matikan ja fysiikan tehtävät yhteen vihkoon: välivaiheet, yksiköt, kuvaajat ja PDF.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="kuvat/sovellus-fi.png">
+<meta name="theme-color" content="#101826">
+<link rel="icon" href="app/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script>try { const t = localStorage.getItem('theme') || 'auto'; document.documentElement.dataset.theme = t === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'apple') : t; } catch (e) {}</script>
-<script src="vendor/nerdamer.min.js"></script>
-<script src="vendor/mathlive.min.js"></script>
+<script src="app/vendor/nerdamer.min.js"></script>
+<script src="app/vendor/mathlive.min.js"></script>
+<script src="app/kieli.js"></script>
+<script src="app/kielet/en.js"></script>
+<script src="app/calc.js"></script>
+<script src="live.js"></script>
+<script src="car.js"></script>
 </head>
 <body>
-<header id="toolbar">
-  <div class="group">
-    <button data-cmd="files" title="Näytä kaikki vihkot">Vihkot</button>
-    <button data-cmd="new" title="Uusi (⌘N)">Uusi</button>
-    <button data-cmd="open" title="Avaa (⌘O)">Avaa</button>
-    <button data-cmd="save" title="Tallenna (⌘S)">Tallenna</button>
-    <button data-cmd="pdf" title="Vie PDF:ksi">PDF</button>
-    <button data-cmd="shot" title="Kopioi koko sivu kuvana (⌘⇧C) – liitä sitten ⌘V">Kuvakaappaus</button>
+
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<nav>
+  <a class="brand" href="#"><img src="app/icon-192.png" alt="">Laskuvihko</a>
+  <div class="links">
+    <a href="#sovellus" data-t="navLook">Sovellus</a>
+    <a href="#vaiheet" data-t="navTry">Kokeile</a>
+    <a href="#piirros" data-t="navDraw">Piirros</a>
+    <a href="#lataa" data-t="navGet">Lataa</a>
+    <button class="lang" id="lang" aria-label="Vaihda kieli / Change language"><span data-l="fi">FI</span> / <span data-l="en">EN</span></button>
   </div>
-  <div class="group">
-    <button data-cmd="addText" title="Uusi tekstirivi (⌘T)">Teksti</button>
-    <button data-cmd="addMath" title="Uusi kaavarivi (⌘E)">Kaava</button>
-    <button data-cmd="addGraph" title="Uusi kuvaaja (⌘G)">Kuvaaja</button>
-    <button data-cmd="addDraw" title="Uusi piirros (⌘⇧P): muodot, sivujen pituudet, kulmat">Piirros</button>
-    <button data-cmd="addTable" title="Uusi tilastotaulukko (⌘⇧T): arvot ja frekvenssit, tulokset heti">Taulukko</button>
-    <button data-cmd="addImage" title="Lisää kuva (⌘⇧I) – myös ⌘V tai vetämällä">Kuva</button>
+</nav>
+<div class="hero-bg">
+
+<header class="wrap hero">
+  <div>
+    <h1 data-t="h1">Vihko, joka osaa <span class="hl">laskea.</span></h1>
+    <p class="lead" data-t="lead">Kirjoita tehtävä kuin paperille. Laskuvihko <b>muuntaa yksiköt</b>, laskee vastauksen ja näyttää välivaiheet.</p>
+    <div class="cta">
+      <a class="btn main" href="app/" data-t="tryBtn">Kokeile selaimessa</a>
+      <a class="btn alt" href="https://github.com/victorhollo/laskuvihko/releases/latest" data-t="macBtn">Lataa Macille</a>
+    </div>
+    <p class="small" data-t="free">Ilmainen. Toimii myös Windowsilla ja Chromebookilla selaimessa.</p>
   </div>
-  <div class="group" id="fmt">
-    <button data-cmd="bold" title="Lihavoi valittu teksti (⌘B)"><b>B</b></button>
-    <button class="hl" data-cmd="hlY" title="Korosta keltaisella"><i style="background:#fde68a"></i></button>
-    <button class="hl" data-cmd="hlG" title="Korosta vihreällä"><i style="background:#bbf7d0"></i></button>
-    <button class="hl" data-cmd="hlB" title="Korosta sinisellä"><i style="background:#bfdbfe"></i></button>
-    <button class="hl" data-cmd="hlP" title="Korosta pinkillä"><i style="background:#fbcfe8"></i></button>
-    <button data-cmd="unformat" title="Poista lihavointi ja korostus valitusta kohdasta">✕</button>
+  <div class="stage">
+    <div class="page" id="heroPage">
+      <p class="task" id="task"></p>
+      <div class="road" id="road" aria-hidden="true"></div>
+      <div class="row"><span class="k">1</span><math-field read-only id="l1"></math-field></div>
+      <div class="row"><span class="k">2</span><math-field read-only id="l2"></math-field></div>
+      <div class="row"><span class="k">3</span><math-field read-only id="l3"></math-field><span class="aside" data-t="kmh">km/h käy suoraan</span></div>
+      <div class="row"><span class="k"></span><span class="ans"><math-field read-only id="ans"></math-field></span></div>
+      <div class="ctrl">
+        <label><span data-t="mass">Massa</span> <input type="range" id="m" min="600" max="2600" step="50" value="1200"><output id="mo"></output></label>
+        <label><span data-t="speed">Nopeus</span> <input type="range" id="v" min="10" max="160" value="72"><output id="vo"></output></label>
+      </div>
+    </div>
   </div>
-  <div class="group">
-    <button class="primary" data-cmd="calc" title="Laske (⌘Enter)">= Laske</button>
-    <button data-cmd="approx" title="Likiarvo (⌘L)">≈ Likiarvo</button>
-    <button data-cmd="simplify">Sievennä</button>
-    <button data-cmd="solve" title="Ratkaise (⌘R)">Ratkaise</button>
-    <button data-cmd="factor">Tekijöihin</button>
-    <button data-cmd="expand">Kehitä</button>
-    <button data-cmd="diff">Derivoi</button>
-    <button data-cmd="integrate">Integroi</button>
-    <button data-cmd="steps" title="Ratkaisu tai derivaatta välivaiheineen (⌘J)">Vaiheittain</button>
-  </div>
-  <div class="group">
-    <button id="angle" data-cmd="angle" title="Kulman yksikkö">DEG</button>
-    <button data-cmd="palette" title="Symbolit">Symbolit</button>
-    <button data-cmd="tables" title="Kaavat ja taulukot (mafytaulukot.fi) sivupaneeliin">Taulukot</button>
-    <button data-cmd="search" title="Etsi kaikista vihkoista (⌘⇧F)">Haku</button>
-    <button data-cmd="theme" title="Väriteema">Teema</button>
-  </div>
-  <span id="status"></span>
 </header>
+</div>
+
 <main>
-  <aside id="files"></aside>
-  <div id="scroll"><div id="page"><input id="title" placeholder="Nimetön" spellcheck="false"><div id="doc"></div></div></div>
-  <aside id="palette"></aside>
-  <aside id="tables"><div class="tgrip" title="Vedä leveämmäksi"></div><div class="thead"><span>Kaavat ja taulukot</span><span class="tsrc">mafytaulukot.fi</span><button data-tcmd="zout" title="Pienennä">−</button><span class="tzoom">80 %</span><button data-tcmd="zin" title="Suurenna">+</button><button data-tcmd="close" title="Sulje">✕</button></div><div class="tframe"><iframe title="Mafy-taulukot"></iframe></div></aside>
+<section class="block show" id="sovellus">
+  <div class="wrap center">
+    <h2 data-t="showH">Tältä se näyttää.</h2>
+    <p class="say" data-t="showP">Tehtävänanto, lasku ja välivaiheet samalla sivulla. Sininen on Laskuvihkon laskema.</p>
+  </div>
+  <div class="wrap">
+    <div class="shot"><img id="shotImg" src="kuvat/sovellus-fi.png" width="2720" height="1800" loading="lazy" alt="Laskuvihko-sovellus: fysiikan tehtävä, jossa kiihtyvyys ja matka on laskettu yksiköineen, ja yhtälö ratkaistu välivaiheineen"></div>
+  </div>
+</section>
+<section class="block" id="vaiheet">
+  <div class="wrap split">
+    <div>
+      <h2 data-t="stepsH">Näe, miten vastaus syntyy.</h2>
+      <p class="say" data-t="stepsP">Laskuvihko ei anna pelkkää vastausta. Se näyttää jokaisen välivaiheen ja kertoo, mitä siinä tehtiin, joten opit samalla.</p>
+      <div class="chips" id="eqChips"></div>
+    </div>
+    <div class="page steps">
+      <div id="stepRows"></div>
+      <div class="steps-foot">
+        <span class="count" id="stepCount"></span>
+        <div class="cta">
+          <button class="btn alt" id="stepAll" data-t="stepAll">Näytä kaikki</button>
+          <button class="btn main" id="stepNext" data-t="stepNext">Seuraava vaihe</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="kuvaaja">
+  <div class="wrap">
+    <h2 data-t="graphH">Kuvaaja piirtyy samalle sivulle.</h2>
+    <p class="say" data-t="graphP">Liikuta kertoimia. Paraabeli muuttuu heti, ja nollakohdat lasketaan heti.</p>
+    <div class="graph-wrap">
+      <canvas id="plot" role="img" aria-label="Kuvaaja" data-a="aPlot"></canvas>
+      <div class="graph-side">
+        <math-field read-only id="fx"></math-field>
+        <label><i>a</i><input type="range" id="ga" min="-3" max="3" step="0.5" value="1"><output id="gao"></output></label>
+        <label><i>b</i><input type="range" id="gb" min="-6" max="6" step="1" value="-2"><output id="gbo"></output></label>
+        <label><i>c</i><input type="range" id="gc" min="-8" max="8" step="1" value="-3"><output id="gco"></output></label>
+        <div class="zeros"><div data-t="zeros">Nollakohdat</div><math-field read-only id="gz"></math-field></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="piirros">
+  <div class="wrap drawsec">
+    <div>
+      <h2 data-t="drawH">Piirrä kuvio. Mitat tulevat mukaan.</h2>
+      <p class="say" data-t="drawP">Piirrä kolmio, ympyrä tai voimakuvio suoraan vihkoon. Laskuvihko mittaa sivut ja kulmat itse, ja yhdellä napilla mitat siirtyvät laskuun.</p>
+      <ul class="ticks">
+        <li data-t="draw1">Kynä, janat, nuolet, kolmiot, ympyrät, kaaret ja koordinaatisto</li>
+        <li data-t="draw2">Pituudet ja kulmat näkyvät kuviossa valmiiksi</li>
+        <li data-t="draw3">Kärjet tarttuvat ruudukkoon, joten kuvasta tulee siisti</li>
+      </ul>
+    </div>
+    <div class="drawpic"><img id="drawImg" src="kuvat/piirros-fi.png" width="1640" height="2010" loading="lazy" alt="Laskuvihkon piirtotyökalu: suorakulmainen kolmio, jonka sivut 3 m, 4 m ja 5 m sekä kulmat näkyvät kuviossa, ja mitat siirrettynä laskuriveiksi"></div>
+  </div>
+</section>
+
+<section class="block" id="yksikot">
+  <div class="wrap center">
+    <h2 data-t="unitsH">Yksiköt kulkevat mukana.</h2>
+    <p class="say" data-t="unitsP">Kirjoita lasku yksiköineen tai valitse esimerkki. Laskuvihko muuntaa ja sieventää ne itse.</p>
+    <div class="chips" id="unitChips"></div>
+  </div>
+  <div class="wrap">
+    <div class="units">
+      <div class="page">
+        <div class="input"><math-field id="uin" aria-label="Lasku" data-a="aCalc"></math-field></div>
+        <div class="unit-keys" id="unitKeys"></div>
+        <div class="result"><span class="ans"><math-field read-only id="uout"></math-field></span><span class="err" id="uerr"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="wrap whole">
+    <div>
+      <h2 data-t="wholeH">Koko tehtävä yhdellä sivulla.</h2>
+      <p class="say" data-t="wholeP">Teksti, kaavat, kuvaajat, piirrokset ja kuvat samassa vihkossa. Kun tehtävä on valmis, palautat sen PDF:nä.</p>
+    </div>
+    <div class="facts">
+      <div><b data-t="f1b">Kaavasto</b><span data-t="f1s">315 matematiikan ja fysiikan kaavaa haulla</span></div>
+      <div><b data-t="f2b">Yhtälöryhmät</b><span data-t="f2s">myös epälineaariset ja yksiköillä</span></div>
+      <div><b data-t="f3b">Derivaatat ja integraalit</b><span data-t="f3s">raja-arvot, summat, matriisit ja vektorit</span></div>
+      <div><b data-t="f4b">PDF ja kuvakaappaus</b><span data-t="f4s">valmis palautettavaksi</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="aiheet">
+  <div class="wrap">
+    <h2 data-t="topH">Mitä Laskuvihkolla voi laskea?</h2>
+    <div class="topics">
+      <div><h3 data-t="topM">Matematiikka</h3><p data-t="topMp">Yhtälön ratkaisu välivaiheineen, toisen asteen yhtälö, yhtälöryhmät, trigonometriset yhtälöt, derivaatta, integraali, raja-arvo, vektorit, matriisit, tilastot ja funktion kuvaaja.</p></div>
+      <div><h3 data-t="topF">Fysiikka</h3><p data-t="topFp">Laskut yksiköineen: yksikkömuunnokset (km/h ja m/s, °C ja K, kJ ja J), kaavan ratkaisu halutun suureen suhteen, liike, voimat, energia, lämpö ja sähkö. Kaavasto on aina vieressä.</p></div>
+      <div><h3 data-t="topK">Kenelle</h3><p data-t="topKp">Lukiolaiselle kotitehtäviin ja kertaukseen, esimerkiksi pitkän ja lyhyen matematiikan (MAA, MAB) ja fysiikan (FY) kursseille. Ei ole käytössä ylioppilaskokeessa.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="lataa">
+  <div class="wrap">
+    <h2 data-t="getH">Aloita nyt.</h2>
+    <div class="get">
+      <div class="mac">
+        <h3 data-t="macH">Mac</h3>
+        <p data-t="macP">Oma sovellus, toimii ilman nettiä. Tiedostot tallentuvat koneellesi.</p>
+        <a class="btn main" href="https://github.com/victorhollo/laskuvihko/releases/latest" data-t="macBtn2">Lataa Macille</a>
+      </div>
+      <div class="web">
+        <h3 data-t="webH">Selain</h3>
+        <p data-t="webP">Windows, Chromebook ja Mac. Ei asennusta, avaa ja kirjoita.</p>
+        <a class="btn alt" href="app/" data-t="webBtn">Avaa selaimessa</a>
+      </div>
+    </div>
+  </div>
+</section>
 </main>
-<script src="graph.js"></script>
-<script src="draw.js"></script>
-<script src="calc.js"></script>
-<script src="app.js"></script>
+
+<footer>
+  <div class="wrap">
+    <span data-t="made">Laskuvihko · Tehty Suomessa</span>
+    <a href="https://github.com/victorhollo/laskuvihko">GitHub</a>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+<script src="fx.js"></script>
 </body>
 </html>

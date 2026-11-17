@@ -4,24 +4,24 @@ const DRAW_W = 700, STEP = 35;
 const DRAW_COLORS = ['#1b1b1b', '#2f6db0', '#b5532a', '#2f8f6b', '#8a4fb0', '#c08a1e'];
 const NS = 'http://www.w3.org/2000/svg';
 const TOOLS = [
-  ['select', 'Valitse ja siirrä (V)', '<path d="M5 3l12 7-5 1.5L9.5 17z"/>'],
-  ['pen', 'Kynä (P)', '<path d="M3 17c3-1 4-5 7-6s3 3 6 1"/><path d="M14 3l3 3-8 8H6v-3z" fill="none"/>'],
-  ['curve', 'Käyrä: klikkaa pisteitä, lopeta Enterillä, tuplaklikkaamalla tai 1. pisteeseen (U)', '<path d="M3 15C6 3 10 3 11 10s5 7 6-4"/>'],
-  ['line', 'Jana (L)', '<path d="M4 16L16 4"/><circle cx="4" cy="16" r="1.6"/><circle cx="16" cy="4" r="1.6"/>'],
-  ['arrow', 'Nuoli / vektori (N)', '<path d="M4 16L16 4M9 4h7v7"/>'],
-  ['rect', 'Suorakulmio (R) – Vaihto: neliö', '<rect x="3.5" y="5.5" width="13" height="9" rx="1"/>'],
-  ['tri', 'Kolmio: klikkaa 3 kärkeä (T)', '<path d="M10 3.5L17 16H3z"/>'],
-  ['poly', 'Monikulmio: klikkaa kärjet, lopeta klikkaamalla 1. kärkeä tai Enter (M)', '<path d="M6 3.5h8l3 7-5 6H6l-3-6z"/>'],
-  ['circle', 'Ympyrä: vedä keskipisteestä (O)', '<circle cx="10" cy="10" r="6.5"/>'],
-  ['ellipse', 'Ellipsi: vedä keskipisteestä (J) – Vaihto: ympyrä', '<ellipse cx="10" cy="10" rx="7.5" ry="4.5"/>'],
-  ['arc', 'Kaari tai sektori: klikkaa keskipiste, kaaren alku ja loppu (A)', '<path d="M16 16A12 12 0 0 0 4 4"/><circle cx="4" cy="16" r="1.5" fill="currentColor"/><path d="M4 16h12M4 16V4" stroke-dasharray="2 2"/>'],
-  ['angle', 'Kulma: klikkaa kärki, sitten kyljet – mikä tahansa kulma (K). Vaihto: 15° välein, Alt: ei kiinnitystä', '<path d="M17 16H3l9-11"/><path d="M8 16a5 5 0 0 0-1.6-3.7"/>'],
-  ['axes', 'Koordinaatisto: vedä alue, siirrä origoa sen kahvasta (G). Tuplaklikkaa lukua 1 vaihtaaksesi askelta', '<path d="M10 17V3M3 10h14M8 5l2-2 2 2M15 8l2 2-2 2"/>'],
-  ['dim', 'Mitta: vedä mitattavan matkan yli (D)', '<path d="M3 13h14M3 10v6M17 10v6M6 11l-3 2 3 2M14 11l3 2-3 2"/>'],
-  ['tick', 'Yhtä pitkät sivut: klikkaa sivua (1, 2 tai 3 viivaa, 4. klikkaus poistaa) (Y)', '<path d="M3 16L17 4M7.5 9l3 3.5M9.5 7.5l3 3.5"/>'],
-  ['text', 'Teksti: klikkaa paikkaa (X)', '<path d="M4 5h12M10 5v11"/>'],
-  ['point', 'Piste (I)', '<circle cx="10" cy="10" r="2.6" fill="currentColor"/>'],
-  ['erase', 'Pyyhekumi: klikkaa tai vedä kuvion yli (E)', '<path d="M8 16h8M4 12l6-7 6 5-5 6H8z"/>'],
+  ['select', tr('Valitse ja siirrä (V)'), '<path d="M5 3l12 7-5 1.5L9.5 17z"/>'],
+  ['pen', tr('Kynä (P)'), '<path d="M3 17c3-1 4-5 7-6s3 3 6 1"/><path d="M14 3l3 3-8 8H6v-3z" fill="none"/>'],
+  ['curve', tr('Käyrä: klikkaa pisteitä, lopeta Enterillä, tuplaklikkaamalla tai 1. pisteeseen (U)'), '<path d="M3 15C6 3 10 3 11 10s5 7 6-4"/>'],
+  ['line', tr('Jana (L)'), '<path d="M4 16L16 4"/><circle cx="4" cy="16" r="1.6"/><circle cx="16" cy="4" r="1.6"/>'],
+  ['arrow', tr('Nuoli / vektori (N)'), '<path d="M4 16L16 4M9 4h7v7"/>'],
+  ['rect', tr('Suorakulmio (R) – Vaihto: neliö'), '<rect x="3.5" y="5.5" width="13" height="9" rx="1"/>'],
+  ['tri', tr('Kolmio: klikkaa 3 kärkeä (T)'), '<path d="M10 3.5L17 16H3z"/>'],
+  ['poly', tr('Monikulmio: klikkaa kärjet, lopeta klikkaamalla 1. kärkeä tai Enter (M)'), '<path d="M6 3.5h8l3 7-5 6H6l-3-6z"/>'],
+  ['circle', tr('Ympyrä: vedä keskipisteestä (O)'), '<circle cx="10" cy="10" r="6.5"/>'],
+  ['ellipse', tr('Ellipsi: vedä keskipisteestä (J) – Vaihto: ympyrä'), '<ellipse cx="10" cy="10" rx="7.5" ry="4.5"/>'],
+  ['arc', tr('Kaari tai sektori: klikkaa keskipiste, kaaren alku ja loppu (A)'), '<path d="M16 16A12 12 0 0 0 4 4"/><circle cx="4" cy="16" r="1.5" fill="currentColor"/><path d="M4 16h12M4 16V4" stroke-dasharray="2 2"/>'],
+  ['angle', tr('Kulma: klikkaa kärki, sitten kyljet – mikä tahansa kulma (K). Vaihto: 15° välein, Alt: ei kiinnitystä'), '<path d="M17 16H3l9-11"/><path d="M8 16a5 5 0 0 0-1.6-3.7"/>'],
+  ['axes', tr('Koordinaatisto: vedä alue, siirrä origoa sen kahvasta (G). Tuplaklikkaa lukua 1 vaihtaaksesi askelta'), '<path d="M10 17V3M3 10h14M8 5l2-2 2 2M15 8l2 2-2 2"/>'],
+  ['dim', tr('Mitta: vedä mitattavan matkan yli (D)'), '<path d="M3 13h14M3 10v6M17 10v6M6 11l-3 2 3 2M14 11l3 2-3 2"/>'],
+  ['tick', tr('Yhtä pitkät sivut: klikkaa sivua (1, 2 tai 3 viivaa, 4. klikkaus poistaa) (Y)'), '<path d="M3 16L17 4M7.5 9l3 3.5M9.5 7.5l3 3.5"/>'],
+  ['text', tr('Teksti: klikkaa paikkaa (X)'), '<path d="M4 5h12M10 5v11"/>'],
+  ['point', tr('Piste (I)'), '<circle cx="10" cy="10" r="2.6" fill="currentColor"/>'],
+  ['erase', tr('Pyyhekumi: klikkaa tai vedä kuvion yli (E)'), '<path d="M8 16h8M4 12l6-7 6 5-5 6H8z"/>'],
 ];
 const GREEK = 'αβγδεζηθ';
 // pen: soften hand shake (3 rounds of neighbour averaging, ends kept), then drop points that add nothing
@@ -42,7 +42,7 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
 const len = v => Math.hypot(v[0], v[1]);
 const dist = (a, b) => len(sub(a, b));
 const unit = v => { const l = len(v) || 1; return [v[0] / l, v[1] / l]; };
-const fmtNum = n => String(Math.round(n * 100) / 100).replace('.', ',').replace('-', '−');
+const fmtNum = n => String(Math.round(n * 100) / 100).replace('.', Kieli.pilkku ? ',' : '.').replace('-', '−');
 const pretty = s => s.replace(/\^2/g, '²').replace(/\^3/g, '³').replace(/sqrt\(([^)]*)\)/g, '√$1').replace(/\balpha\b/g, 'α').replace(/\bbeta\b/g, 'β').replace(/\bgamma\b/g, 'γ');
 
 function el(tag, attrs, parent) {
@@ -56,7 +56,7 @@ class Drawing {
   constructor(box, b, onChange) {
     this.box = box; this.b = b; this.onChange = onChange;
     Object.assign(this, {view: {z: 1, x: 0, y: 0}, tool: 'select', sel: null, act: null, pending: null, mouse: null, undo: [], redo: []});
-    this.style = {c: DRAW_COLORS[0], w: 2, dash: false, fill: false, len: true, ang: false, names: false, rad: true, meas: false, big: false, sector: false};
+    this.style = {c: DRAW_COLORS[0], w: 2, dash: false, fill: false, len: true, ang: false, names: false, rad: true, meas: false, big: false, sector: false, arms: true};
     this.buildUI();
     this.render();
   }
@@ -74,50 +74,51 @@ class Drawing {
     const opts = document.createElement('div'); opts.className = 'dopts';
     const colors = document.createElement('div'); colors.className = 'dgroup';
     for (const c of DRAW_COLORS) {
-      const btn = document.createElement('button'); btn.className = 'swatch'; btn.dataset.c = c; btn.title = 'Väri';
+      const btn = document.createElement('button'); btn.className = 'swatch'; btn.dataset.c = c; btn.title = tr('Väri');
       btn.innerHTML = `<i style="background:${c}"></i>`;
       btn.onclick = () => this.setOpt('c', c);
       colors.appendChild(btn);
     }
     const widths = document.createElement('div'); widths.className = 'dgroup';
-    for (const [w, t] of [[1.2, 'Ohut'], [2, 'Normaali'], [3.5, 'Paksu']]) {
+    for (const [w, t] of [[1.2, tr('Ohut')], [2, tr('Normaali')], [3.5, tr('Paksu')]]) {
       const btn = document.createElement('button'); btn.dataset.w = w; btn.title = t + ' viiva';
       btn.innerHTML = `<svg viewBox="0 0 20 20" width="18" height="18"><path d="M3 10h14" stroke="currentColor" stroke-width="${w * 1.1}" stroke-linecap="round"/></svg>`;
       btn.onclick = () => this.setOpt('w', w);
       widths.appendChild(btn);
     }
     const toggles = document.createElement('div'); toggles.className = 'dgroup';
-    for (const [k, t, tip] of [['dash', 'Katko', 'Katkoviiva'], ['fill', 'Täyttö', 'Vaalea täyttö'], ['len', 'Pituudet', 'Näytä sivujen pituudet (tuplaklikkaa lukua muuttaaksesi, esim. a tai 5 cm)'],
-      ['ang', 'Kulmat', 'Näytä kulmat (tuplaklikkaa muuttaaksesi, esim. α)'], ['names', 'Kärjet', 'Nimeä kärjet A, B, C…'], ['rad', 'Säde', 'Näytä ympyrän tai kaaren säde'],
-      ['meas', 'Lukuarvot', 'Päällä: mitatut luvut (5 cm, 37°). Pois: kirjaimet a, b, α, β – kun arvo on se mitä lasketaan. Tyhjennä merkintä tuplaklikkaamalla, niin se piiloutuu'],
-      ['big', 'Iso puoli', 'Kulma tai kaari toiselle puolelle (yli 180°)'], ['sector', 'Sektori', 'Kaaresta sektori: säteet keskipisteeseen']]) {
+    for (const [k, t, tip] of [['dash', tr('Katko'), tr('Katkoviiva')], ['fill', tr('Täyttö'), tr('Vaalea täyttö')], ['len', tr('Pituudet'), tr('Näytä sivujen pituudet (tuplaklikkaa lukua muuttaaksesi, esim. a tai 5 cm)')],
+      ['ang', tr('Kulmat'), tr('Näytä kulmat (tuplaklikkaa muuttaaksesi, esim. α)')], ['names', tr('Kärjet'), tr('Nimeä kärjet A, B, C…')], ['rad', tr('Säde'), tr('Näytä ympyrän tai kaaren säde')],
+      ['meas', tr('Lukuarvot'), tr('Päällä: mitatut luvut (5 cm, 37°). Pois: kirjaimet a, b, α, β – kun arvo on se mitä lasketaan. Tyhjennä merkintä tuplaklikkaamalla, niin se piiloutuu')],
+      ['arms', tr('Kyljet'), tr('Kulman kyljet näkyviin. Pois: pelkkä kulmakaari, esim. valmiiden viivojen väliin')],
+      ['big', tr('Iso puoli'), tr('Kulma tai kaari toiselle puolelle (yli 180°)')], ['sector', tr('Sektori'), tr('Kaaresta sektori: säteet keskipisteeseen')]]) {
       const btn = document.createElement('button'); btn.dataset.opt = k; btn.textContent = t; btn.title = tip;
       btn.onclick = () => this.setOpt(k, !this.cur(k));
       toggles.appendChild(btn);
     }
     const acts = document.createElement('div'); acts.className = 'dgroup';
     const actBtn = (t, tip, fn) => { const btn = document.createElement('button'); btn.innerHTML = t; btn.title = tip; btn.onclick = fn; acts.appendChild(btn); return btn; };
-    this.dupBtn = actBtn('Monista', 'Monista valittu kuvio', () => this.duplicate());
-    actBtn('Mitat laskuun', 'Tee mitoista laskurivit (a:=5 m, α:=37°), niin voit laskea niillä. Valittu kuvio tai koko piirros', () => this.exportMeasures());
-    this.delBtn = actBtn('Poista', 'Poista valittu kuvio (⌫)', () => this.deleteSel());
-    actBtn('<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5L3 9l4 4"/><path d="M3 9h9a5 5 0 0 1 0 10h-2"/></svg>', 'Kumoa (⌘Z)', () => this.doUndo());
-    actBtn('<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l4 4-4 4"/><path d="M17 9H8a5 5 0 0 0 0 10h2"/></svg>', 'Tee uudelleen (⌘⇧Z)', () => this.doRedo());
+    this.dupBtn = actBtn(tr('Monista'), tr('Monista valittu kuvio'), () => this.duplicate());
+    actBtn(tr('Mitat laskuun'), tr('Tee mitoista laskurivit (a:=5 m, α:=37°), niin voit laskea niillä. Valittu kuvio tai koko piirros'), () => this.exportMeasures());
+    this.delBtn = actBtn(tr('Poista'), tr('Poista valittu kuvio (⌫)'), () => this.deleteSel());
+    actBtn('<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5L3 9l4 4"/><path d="M3 9h9a5 5 0 0 1 0 10h-2"/></svg>', tr('Kumoa (⌘Z)'), () => this.doUndo());
+    actBtn('<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5l4 4-4 4"/><path d="M17 9H8a5 5 0 0 0 0 10h2"/></svg>', tr('Tee uudelleen (⌘⇧Z)'), () => this.doRedo());
     const page = document.createElement('div'); page.className = 'dgroup dpage';
-    const grid = document.createElement('button'); grid.textContent = 'Ruudukko'; grid.title = 'Näytä ruudukko'; grid.dataset.page = 'grid';
+    const grid = document.createElement('button'); grid.textContent = tr('Ruudukko'); grid.title = tr('Näytä ruudukko'); grid.dataset.page = 'grid';
     grid.onclick = () => { this.b.grid = !this.b.grid; this.changed(); };
-    const snap = document.createElement('button'); snap.textContent = 'Kiinnitä'; snap.title = 'Kärjet tarttuvat ruudukon pisteisiin'; snap.dataset.page = 'snap';
+    const snap = document.createElement('button'); snap.textContent = tr('Kiinnitä'); snap.title = tr('Kärjet tarttuvat ruudukon pisteisiin'); snap.dataset.page = 'snap';
     snap.onclick = () => { this.b.snap = !this.b.snap; this.changed(); };
-    const lab = document.createElement('label'); lab.title = 'Mittakaava pituuksille';
-    lab.innerHTML = '1 ruutu = <input class="dscale" value=""> <input class="dunit" placeholder="yks." value="">';
+    const lab = document.createElement('label'); lab.title = tr('Mittakaava pituuksille');
+    lab.innerHTML = tr('1 ruutu =') + ' <input class="dscale" value=""> <input class="dunit" placeholder="' + tr('yks.') + '" value="">';
     const [sc, un] = lab.querySelectorAll('input');
     sc.value = fmtNum(this.b.scale || 1); un.value = this.b.unit || '';
     sc.onchange = () => { const v = parseFloat(sc.value.replace(',', '.')); this.b.scale = v > 0 ? v : 1; sc.value = fmtNum(this.b.scale); this.changed(); };
     un.oninput = () => { this.b.unit = un.value.trim(); this.render(); this.onChange(); };
     const zoom = document.createElement('div'); zoom.className = 'dgroup dzoom';
     const zb = (t, tip, fn) => { const btn = document.createElement('button'); btn.textContent = t; btn.title = tip; btn.onclick = () => { fn(); this.box.focus({preventScroll: true}); }; zoom.appendChild(btn); return btn; };
-    zb('−', 'Loitonna (−)', () => this.zoomBy(1 / 1.4));
-    this.zoomLabel = zb('100 %', 'Koko piirros näkyviin (0)', () => this.zoomTo(1));
-    zb('+', 'Lähennä (+). Myös nipistys ohjauslevyllä tai ⌘ + vieritys', () => this.zoomBy(1.4));
+    zb('−', tr('Loitonna (−)'), () => this.zoomBy(1 / 1.4));
+    this.zoomLabel = zb('100 %', tr('Koko piirros näkyviin (0)'), () => this.zoomTo(1));
+    zb('+', kb(tr('Lähennä (+). Myös nipistys ohjauslevyllä tai ⌘ + vieritys')), () => this.zoomBy(1.4));
     page.append(grid, snap, lab);
     bar.appendChild(zoom);
     bar.append(tools, colors, widths, toggles, acts, page);
@@ -125,7 +126,7 @@ class Drawing {
     this.bar = bar;
 
     this.svg = el('svg', {class: 'drawsvg', viewBox: `0 0 ${DRAW_W} ${this.b.h}`});
-    const grip = document.createElement('span'); grip.className = 'dgrip'; grip.title = 'Muuta korkeutta vetämällä';
+    const grip = document.createElement('span'); grip.className = 'dgrip'; grip.title = tr('Muuta korkeutta vetämällä');
     grip.addEventListener('pointerdown', e => {
       e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId);
       const y0 = e.clientY, h0 = this.b.h, k = DRAW_W / this.svg.getBoundingClientRect().width;
@@ -260,13 +261,13 @@ class Drawing {
       if (seen.has(m.name)) continue; seen.add(m.name);
       const name = GK[m.name] ? '\\' + GK[m.name] : m.name.replace(/^([A-Za-z])_?([0-9])$/, '$1_{$2}').replace(/[′']/g, '');
       if (!/^\\?[A-Za-z]+(_\{\d\})?$/.test(name) || GK[m.name] === 'zeta' || GK[m.name] === 'eta') continue;
-      const num = String(Math.round(m.val * 1000) / 1000).replace('.', '{,}').replace('-', '-');
+      const num = String(Math.round(m.val * 1000) / 1000).replace('.', Kieli.pilkku ? '{,}' : '.').replace('-', '-');
       const u = this.b.unit && m.kind === 'len' ? '\\operatorname{\\mathbf{' + this.b.unit.replace(/[^A-Za-zµ]/g, '') + '}}' : '';
       rows.push([name, name + ':=' + num + (m.kind === 'deg' ? '\\degree' : u)]);
     }
-    if (!rows.length) return flash('Ei mittoja: laita Pituudet tai Kulmat päälle.');
+    if (!rows.length) return flash(tr('Ei mittoja: laita Pituudet tai Kulmat päälle.'));
     let after = this.box.closest('.block').dataset.id;
-    for (const [name, latex] of rows) after = insertAfter(after, Object.assign(mk('math'), {latex, res: '\\text{muistissa } ' + name}), false).id;
+    for (const [name, latex] of rows) after = insertAfter(after, Object.assign(mk('math'), {latex, res: Kieli.tex('\\text{muistissa } ') + name}), false).id;
     flash(rows.length + (rows.length === 1 ? ' mitta' : ' mittaa') + ' laskuriveiksi');
   }
   auto(s, num, letter) { return s.meas === false ? letter : num; }
@@ -278,6 +279,7 @@ class Drawing {
     if (['poly', 'circle', 'ellipse', 'curve', 'arc'].includes(t)) s.fill = st.fill;
     if (['line', 'arrow', 'poly', 'circle', 'angle', 'dim', 'arc'].includes(t)) s.meas = st.meas;
     if (t === 'angle' || t === 'arc') s.big = st.big;
+    if (t === 'angle') s.arms = st.arms;
     if (t === 'arc') Object.assign(s, {sector: st.sector, rad: st.rad, ang: st.ang, len: st.len, txt: []});
     if (t === 'axes') Object.assign(s, {len: true, txt: []});
     if (t === 'line' || t === 'arrow' || t === 'poly') { s.len = t === 'arrow' ? false : st.len; s.txt = []; }
@@ -660,8 +662,10 @@ class Drawing {
         this.label(g, [m[0] + n[0] * 12, m[1] + n[1] * 12], (s.txt && s.txt[0]) || auto, {fill: s.c, 'data-lab': `${i}:l:0`, 'data-auto': auto});
       }
     } else if (s.t === 'angle') {
-      const d = line([P[0], P[1], P[2]]);
-      el('path', Object.assign({d}, stroke), g); hit(d);
+      const d = line([P[0], P[1], P[2]]), ok = dist(P[0], P[1]) > 1 && dist(P[2], P[1]) > 1;
+      // arms off: only the arc mark shows (for an angle between lines that are already drawn); a short invisible stub keeps it clickable
+      if (s.arms !== false) { el('path', Object.assign({d}, stroke), g); hit(d); }
+      else if (ok) { const q = k => { const u = unit(sub(P[k], P[1])), r = Math.min(34, dist(P[k], P[1])); return [P[1][0] + u[0] * r, P[1][1] + u[1] * r]; }; hit(line([q(0), P[1], q(2)])); }
       if (dist(P[0], P[1]) > 1 && dist(P[2], P[1]) > 1) this.angleMark(g, s, i, 0, P[0], P[1], P[2], !!s.big, 'l', this.greekFor(i));
     } else if (s.t === 'arc') {
       const c = P[0], r = dist(c, P[1]), S = P[1], E = P[2];

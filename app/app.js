@@ -1,11 +1,27 @@
 // Laskuvihko main app: document of text, formula and graph rows.
 MathfieldElement.fontsDirectory = './fonts';
 MathfieldElement.soundsDirectory = null;
-MathfieldElement.decimalSeparator = ',';
+MathfieldElement.decimalSeparator = Kieli.pilkku ? ',' : '.';
+document.documentElement.lang = Kieli.lang;
+// laskun vastaus valitulle kielelle: tekstit ja \text{…}-osat
+const trAll = x => typeof x === 'string' ? tr(Kieli.tex(x)) : Array.isArray(x) ? x.map(trAll) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, trAll(v)])) : x;
 
 const $ = s => document.querySelector(s);
 const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native;
-const post = msg => native && native.postMessage(msg);
+// fsa: Chrome/Edge osaa tallentaa suoraan tiedostoon ja kansioon (webfs.js); hasFS = Mac-sovellus tai fsa
+const fsa = !native && typeof WebFS !== 'undefined' && WebFS.ok, hasFS = !!native || fsa;
+const post = msg => native ? native.postMessage(msg) : fsa && WebFS.post(msg);
+// Mac or Windows keys: guessed from the computer, or picked with the toolbar button on the web (remembered)
+let osPick = ''; try { osPick = localStorage.getItem('lvOS') || ''; } catch {}
+const isMac = !!native || (osPick ? osPick === 'mac' : /Mac|iPhone|iPad/.test(navigator.platform));
+const webAlt = !native && !isMac;
+// shortcut names for this computer: the browser keeps ⌘T, ⌘⇧T and ⌘N, so on the web they are ⌃ (Mac) or Alt (Windows); Windows has Ctrl for ⌘
+function kb(s) {
+  if (native || typeof s !== 'string') return s;
+  if (isMac) return s.replace(/⌘( ?)(⇧?)( ?)([TN])(?![a-zäö])/g, (_, a, sh, b, c) => '⌃' + a + sh + b + c);
+  return s.replace(/⌘( ?)(⇧?)( ?)([TN])(?![a-zäö])/g, (_, a, sh, b, c) => 'Alt' + (a || '+') + (sh ? 'Shift' + (b || '+') : '') + c)
+    .replace(/⌘( ?)/g, (_, a) => 'Ctrl' + (a || '+')).replace(/⇧( ?)(?=\S)/g, (_, a) => 'Shift' + (a || '+')).replace(/⇧/g, 'Shift').replace(/↩/g, 'Enter').replace(/⌫/g, 'Backspace');
+}
 const docEl = $('#doc');
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -62,7 +78,7 @@ function buildImage(el, b) {
   img.src = b.src; img.draggable = false;
   if (b.w) img.style.width = b.w + 'px';
   const grip = document.createElement('span');
-  grip.className = 'grip'; grip.title = 'Muuta kokoa vetämällä';
+  grip.className = 'grip'; grip.title = tr('Muuta kokoa vetämällä');
   grip.addEventListener('pointerdown', e => {
     e.preventDefault(); grip.setPointerCapture(e.pointerId);
     const x0 = e.clientX, w0 = img.getBoundingClientRect().width, max = el.getBoundingClientRect().width;
@@ -111,7 +127,7 @@ async function addImages(files, afterId) {
     } else insertAfter(prev, last, false);
     prev = last.id;
   }
-  if (failed) flash('Kuvaa ei voitu avata');
+  if (failed) flash(tr('Kuvaa ei voitu avata'));
   if (last) { if (idx(last.id) === doc.blocks.length - 1) insertAfter(last.id, mk('math'), false); focusBlock(last.id); }
   return true;
 }
@@ -135,7 +151,7 @@ document.addEventListener('drop', e => {
 function buildText(el, b) {
   const t = document.createElement('div');
   t.className = 'text'; t.contentEditable = 'true'; t.spellcheck = true;
-  t.dataset.ph = 'Kirjoita tekstiä…';
+  t.dataset.ph = tr('Kirjoita tekstiä…');
   t.innerHTML = b.html;
   t.querySelectorAll('span.im').forEach(s => hydrateIm(s, t, b));
   t.addEventListener('input', () => { b.html = textHtml(t); touch(); });
@@ -162,10 +178,12 @@ function zwAround(s) {
 function hydrateIm(s, t, b) {
   s.contentEditable = 'false'; s.textContent = '';
   const mf = newMathField(s.dataset.tex || '', 'inl');
-  mf.placeholder = '\text{kaava}';
+  mf.placeholder = Kieli.tex('\\text{kaava}');
   s.appendChild(mf);
   zwAround(s);
   const out = after => {
+    // "\pi" typed but not finished yet: finish it first, so the formula is not lost
+    if (mf.mode === 'latex') { try { mf.executeCommand('complete'); } catch {} b.html = textHtml(t); touch(); }
     mf.blur(); t.focus();
     if (!mf.value.trim()) { const p = s.previousSibling; s.remove(); b.html = textHtml(t); touch(); if (p && p.nodeType === 3) caretAt(p, p.data.length); else caretAt(t, 0); return; }
     if (after) caretAt(s.nextSibling, 1); else caretAt(s.previousSibling, s.previousSibling.data.length - 1);
@@ -176,7 +194,7 @@ function hydrateIm(s, t, b) {
   mf.addEventListener('keydown', e => {
     if (e.key === '$' || (e.key === 'Tab' && !e.shiftKey) || e.key === 'Escape' || (e.key === 'Enter' && !e.metaKey)) { e.preventDefault(); e.stopImmediatePropagation(); out(true); }
     else if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); out(false); }
-    else if (e.key === 'Backspace' && !mf.value) { e.preventDefault(); e.stopImmediatePropagation(); out(false); }
+    else if (e.key === 'Backspace' && !mf.value && mf.mode !== 'latex') { e.preventDefault(); e.stopImmediatePropagation(); out(false); }
   }, true);
   s._mf = mf;
 }
@@ -283,7 +301,7 @@ function buildMath(el, b) {
   const row = document.createElement('div');
   row.className = 'mathrow';
   const mf = newMathField(b.latex, 'main');
-  mf.placeholder = '\\text{kaava}';
+  mf.placeholder = Kieli.tex('\\text{kaava}');
   const res = new MathfieldElement();
   res.className = 'result'; res.readOnly = true; res.tabIndex = -1;
   res.mathVirtualKeyboardPolicy = 'manual';
@@ -295,7 +313,7 @@ function buildMath(el, b) {
   // free text after the formula on the same row (Tab from the formula)
   const note = document.createElement('div');
   note.className = 'rnote'; note.contentEditable = 'plaintext-only'; note.spellcheck = true;
-  note.dataset.ph = 'tekstiä…'; note.textContent = b.note || '';
+  note.dataset.ph = tr('tekstiä…'); note.textContent = b.note || '';
   note.addEventListener('input', () => { b.note = note.textContent; touch(); });
   note.addEventListener('focusin', () => setActive(b.id));
   note.addEventListener('focusout', () => note.classList.remove('open'));
@@ -334,13 +352,13 @@ const tnum = v => { const t = String(v).trim().replace(/\s/g, '').replace(',', '
 function buildTable(el, b) {
   const wrap = document.createElement('div'); wrap.className = 'tablewrap';
   const t = document.createElement('table'); t.className = 'stattable';
-  t.innerHTML = '<thead><tr><th>arvo <i>x</i></th><th>frekvenssi <i>f</i></th><th></th></tr></thead><tbody></tbody>';
+  t.innerHTML = tr('<thead><tr><th>arvo <i>x</i></th><th>frekvenssi <i>f</i></th><th></th></tr></thead><tbody></tbody>');
   const tb = t.tBodies[0];
   const out = document.createElement('div'); out.className = 'tableout';
   const res = new MathfieldElement(); res.className = 'result'; res.readOnly = true; res.tabIndex = -1; res.mathVirtualKeyboardPolicy = 'manual';
   const err = document.createElement('span'); err.className = 'result err';
   const hint = document.createElement('span'); hint.className = 'thint';
-  hint.textContent = 'Kirjoita arvot tai luokat (esim. 10–20). Frekvenssi = montako kertaa arvo esiintyy (tyhjä = 1). Voit myös liittää luvut Excelistä.';
+  hint.textContent = tr('Kirjoita arvot tai luokat (esim. 10–20). Frekvenssi = montako kertaa arvo esiintyy (tyhjä = 1). Voit myös liittää luvut Excelistä.');
   out.append(res, err);
   wrap.append(t, hint, out);
   el.appendChild(wrap);
@@ -359,8 +377,8 @@ function buildTable(el, b) {
     });
     // classes (10–20) and single values can't be mixed
     const mixed = !bad && cls.length && pairs.length;
-    let st = null, msg = bad ? 'Tarkista punaisella merkityt solut: niissä pitää olla luku tai luokka (esim. 10–20).' : mixed ? 'Kirjoita joko kaikki arvot luokkina (esim. 10–20) tai kaikki yksittäisinä lukuina.' : '';
-    if (!msg) { try { st = cls.length ? Calc.classStats(cls) : pairs.length ? Calc.stats(pairs) : null; } catch (e) { msg = e.message; } }
+    let st = null, msg = bad ? tr('Tarkista punaisella merkityt solut: niissä pitää olla luku tai luokka (esim. 10–20).') : mixed ? tr('Kirjoita joko kaikki arvot luokkina (esim. 10–20) tai kaikki yksittäisinä lukuina.') : '';
+    if (!msg) { try { st = cls.length ? Calc.classStats(cls) : pairs.length ? Calc.stats(pairs) : null; st = trAll(st); } catch (e) { msg = tr(e.message); } }
     bad = !!msg;
     err.textContent = msg;
     err.style.display = bad ? '' : 'none';
@@ -372,7 +390,7 @@ function buildTable(el, b) {
   function draw(fr, fc) {
     tidy(); tb.innerHTML = '';
     b.rows.forEach((r, i) => {
-      const tr = tb.insertRow();
+      const rw = tb.insertRow();
       [0, 1].forEach(c => {
         const inp = document.createElement('input');
         inp.value = r[c]; inp.inputMode = 'decimal'; inp.spellcheck = false; inp.placeholder = c ? '1' : '';
@@ -384,11 +402,11 @@ function buildTable(el, b) {
         });
         inp.addEventListener('keydown', e => key(e, i, c, inp));
         inp.addEventListener('paste', e => paste(e, i, c));
-        tr.insertCell().appendChild(inp);
+        rw.insertCell().appendChild(inp);
       });
-      const del = document.createElement('button'); del.className = 'tdel'; del.textContent = '×'; del.title = 'Poista rivi'; del.tabIndex = -1;
+      const del = document.createElement('button'); del.className = 'tdel'; del.textContent = '×'; del.title = tr('Poista rivi'); del.tabIndex = -1;
       del.onclick = () => { b.rows.splice(i, 1); draw(Math.min(i, b.rows.length - 1), 0); touch(); };
-      tr.insertCell().appendChild(del);
+      rw.insertCell().appendChild(del);
     });
     compute();
     if (fr != null) { const x = cell(Math.min(fr, b.rows.length - 1), fc); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }
@@ -430,9 +448,9 @@ function stepTable(steps) {
   const t = document.createElement('table'); t.className = 'stepbox';
   const mf = (tex, cls) => { const m = new MathfieldElement(); m.readOnly = true; m.tabIndex = -1; m.mathVirtualKeyboardPolicy = 'manual'; m.className = cls; m.value = tex; return m; };
   for (const [op, body, note] of steps) {
-    const tr = t.insertRow();
-    tr.insertCell().className = 'op'; if (op) tr.cells[0].textContent = '⇔';
-    const c = tr.insertCell(); c.className = 'sm';
+    const rw = t.insertRow();
+    rw.insertCell().className = 'op'; if (op) rw.cells[0].textContent = '⇔';
+    const c = rw.insertCell(); c.className = 'sm';
     if (body.startsWith('CHART:')) c.appendChild(signChart(JSON.parse(body.slice(6)), mf)); else c.appendChild(mf(body.replace(/\\frac/g, '\\dfrac'), 'stepm'));
     const n = document.createElement('span'); n.className = 'note'; c.appendChild(n);
     if (note.startsWith('|')) { n.appendChild(mf('\\left|\\,' + note.slice(1) + '\\right.', 'stepn')); } else n.textContent = note;
@@ -443,10 +461,10 @@ function stepTable(steps) {
 // merkkikaavio: ylärivillä kohdat, sitten tekijöiden ja tuloksen merkit (+, −, 0, ∄)
 function signChart(d, mf) {
   const t = document.createElement('table'); t.className = 'signchart';
-  const put = (tr, x, i, head) => { const td = tr.insertCell(); if (i === 0) td.className = 'nm'; else if (d.head[i] !== '') td.className = 'pt';
+  const put = (rw, x, i, head) => { const td = rw.insertCell(); if (i === 0) td.className = 'nm'; else if (d.head[i] !== '') td.className = 'pt';
     if (!x) return; if (i === 0 || head) td.appendChild(mf(x, 'stepm')); else td.textContent = {'-': '−', '\\nexists': '∄'}[x] || x; };
   const h = t.insertRow(); h.className = 'hd'; d.head.forEach((x, i) => put(h, x, i, true));
-  d.rows.forEach((r, k) => { const tr = t.insertRow(); if (d.total && k === d.rows.length - 1) tr.className = 'tot'; r.forEach((x, i) => put(tr, x, i, false)); });
+  d.rows.forEach((r, k) => { const rw = t.insertRow(); if (d.total && k === d.rows.length - 1) rw.className = 'tot'; r.forEach((x, i) => put(rw, x, i, false)); });
   return t;
 }
 
@@ -461,7 +479,7 @@ function histChart(cls) {
     const y = base - c * k; mk('line', {x1: 26, y1: y + .5, x2: W, y2: y + .5, class: 'gl'}, svg);
     mk('text', {x: 20, y: y + 4, 'text-anchor': 'end'}, svg).textContent = c;
   }
-  const lab = x => String(parseFloat(x.toPrecision(6))).replace('.', ',').replace('-', '−');
+  const lab = x => String(parseFloat(x.toPrecision(6))).replace('.', Kieli.pilkku ? ',' : '.').replace('-', '−');
   const seen = new Set();
   for (const [a, b, c] of cls) {
     mk('rect', {x: sx(a), y: base - c * k, width: Math.max(1, sx(b) - sx(a) - 1), height: c * k, rx: 2}, svg);
@@ -473,9 +491,9 @@ function histChart(cls) {
 function statTable(rows) {
   const t = document.createElement('table'); t.className = 'statres';
   for (const [name, sym, v] of rows) {
-    const tr = t.insertRow(); tr.insertCell().textContent = name;
-    const c = tr.insertCell(); c.className = 'sym'; c.textContent = sym;
-    const d = tr.insertCell(); d.className = 'val'; d.textContent = v;
+    const rw = t.insertRow(); rw.insertCell().textContent = name;
+    const c = rw.insertCell(); c.className = 'sym'; c.textContent = sym;
+    const d = rw.insertCell(); d.className = 'val'; d.textContent = v;
   }
   return t;
 }
@@ -494,7 +512,7 @@ function statChart(data) {
   data.forEach(([x, c], i) => {
     const X = 30 + gap + i * (bw + gap);
     mk('rect', {x: X, y: base - c * k, width: bw, height: c * k, rx: 3}, svg);
-    mk('text', {x: X + bw / 2, y: base + 15, 'text-anchor': 'middle'}, svg).textContent = String(parseFloat(x.toPrecision(6))).replace('.', ',').replace('-', '−');
+    mk('text', {x: X + bw / 2, y: base + 15, 'text-anchor': 'middle'}, svg).textContent = String(parseFloat(x.toPrecision(6))).replace('.', Kieli.pilkku ? ',' : '.').replace('-', '−');
   });
   return svg;
 }
@@ -502,9 +520,12 @@ function statChart(data) {
 function showResult(el, b) {
   const res = el.querySelector('math-field.result'), err = el.querySelector('.err');
   res.style.display = b.res && !b.stat && !b.steps ? '' : 'none';
-  if (b.res) res.value = b.res;
-  err.textContent = b.err || '';
-  err.style.display = b.err ? '' : 'none';
+  // a note like "(only for rows below …)" is shown as plain wrapping text, not inside the formula
+  const note = b.res && b.res.match(/^(.*?)\\quad\\text\{(\(.*\))\}$/);
+  if (b.res) res.value = note ? note[1] : b.res;
+  err.textContent = b.err || (note ? note[2] : '');
+  err.classList.toggle('hint', !b.err && !!note);
+  err.style.display = b.err || note ? '' : 'none';
   // statistics: bar chart of how many times each value appears
   el.querySelector(':scope > .statbox')?.remove();
   el.querySelector(':scope > .stepbox')?.remove();
@@ -535,7 +556,7 @@ function showResult(el, b) {
   }
   // systems choose letters with ", x, y" (also hides buttons saved in older notebooks)
   if (b.res && b.vars && !/cases|\\\\|;/.test(b.latex || '')) {
-    const lab = document.createElement('span'); lab.textContent = b.act === 'solve' || b.act === 'calc' ? 'Ratkaise:' : 'Muuttuja:';
+    const lab = document.createElement('span'); lab.textContent = b.act === 'solve' || b.act === 'calc' ? tr('Ratkaise:') : tr('Muuttuja:');
     vs.appendChild(lab);
     for (const v of b.vars) {
       const btn = document.createElement('button');
@@ -563,7 +584,7 @@ function buildGraph(el, b) {
     plot.fns = b.fns.map((l, k) => {
       const row = fns.children[k];
       try { const f = l.trim() ? Calc.fnFor(l) : null; row && row.classList.remove('bad'); row && (row.title = ''); return f; }
-      catch (e) { if (row) { row.classList.add('bad'); row.title = e.message; } return null; }
+      catch (e) { if (row) { row.classList.add('bad'); row.title = tr(e.message); } return null; }
     });
     syncSliders();
     plot.draw();
@@ -594,7 +615,7 @@ function buildGraph(el, b) {
     const row = document.createElement('div'); row.className = 'fn';
     const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = COLORS[k % COLORS.length];
     const mf = newMathField(latex);
-    mf.placeholder = '\\text{esim. } x^2-1';
+    mf.placeholder = Kieli.tex('\\text{esim. } x^2-1');
     mf.addEventListener('input', () => { b.fns[[...fns.children].indexOf(row)] = mf.value; update(); touch(); });
     mf.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && mf.mode !== 'latex') { e.preventDefault(); e.stopPropagation(); b.fns.push(''); addRow('', b.fns.length - 1).focus(); touch(); }
@@ -605,7 +626,7 @@ function buildGraph(el, b) {
       if (d === 'upward') { if (i > 0) fns.children[i - 1].querySelector('math-field').focus(); else focusNeighbour(b.id, -1); e.preventDefault(); }
       if (d === 'downward') { if (i < fns.children.length - 1) fns.children[i + 1].querySelector('math-field').focus(); else focusNeighbour(b.id, 1); e.preventDefault(); }
     });
-    const del = document.createElement('button'); del.textContent = '✕'; del.title = 'Poista funktio';
+    const del = document.createElement('button'); del.textContent = '✕'; del.title = tr('Poista funktio');
     del.onclick = () => {
       const i = [...fns.children].indexOf(row);
       b.fns.splice(i, 1); row.remove();
@@ -630,22 +651,22 @@ function buildGraph(el, b) {
     });
     inputs[key] = i; l.appendChild(i); range.appendChild(l);
   };
-  const add = document.createElement('button'); add.textContent = '+ funktio'; add.className = 'addfn';
+  const add = document.createElement('button'); add.textContent = tr('+ funktio'); add.className = 'addfn';
   add.onclick = () => { b.fns.push(''); addRow('', b.fns.length - 1).focus(); touch(); };
   range.appendChild(add);
   lab('x', 'xmin'); lab('…', 'xmax'); lab('y', 'ymin'); lab('…', 'ymax');
-  const marks = document.createElement('button'); marks.textContent = 'Pisteet';
-  marks.title = 'Näytä nollakohdat, huiput ja leikkauspisteet (vie hiiri pisteen päälle)';
+  const marks = document.createElement('button'); marks.textContent = tr('Pisteet');
+  marks.title = tr('Näytä nollakohdat, huiput ja leikkauspisteet (vie hiiri pisteen päälle)');
   const syncMarks = () => marks.classList.toggle('on', b.marks !== false);
   marks.onclick = () => { b.marks = b.marks === false; syncMarks(); plot.draw(); touch(); };
   syncMarks();
   range.appendChild(marks);
-  const reset = document.createElement('button'); reset.textContent = 'Palauta näkymä';
+  const reset = document.createElement('button'); reset.textContent = tr('Palauta näkymä');
   reset.onclick = () => { Object.assign(b, {xmin: -10, xmax: 10, ymin: -7, ymax: 7}); syncRange(); plot.draw(); touch(); };
-  const delG = document.createElement('button'); delG.textContent = 'Poista kuvaaja';
+  const delG = document.createElement('button'); delG.textContent = tr('Poista kuvaaja');
   delG.onclick = () => removeBlock(b.id);
   range.append(reset, delG);
-  const fmt = v => String(parseFloat(v.toPrecision(4))).replace('.', ',');
+  const fmt = v => String(parseFloat(v.toPrecision(4))).replace('.', Kieli.pilkku ? ',' : '.');
   function syncRange() { for (const k in inputs) if (document.activeElement !== inputs[k]) inputs[k].value = fmt(b[k]); }
   syncRange();
   requestAnimationFrame(update);
@@ -684,12 +705,29 @@ function focusBlock(id, atStart) {
     const mfs = el.querySelectorAll('math-field:not(.result)');
     const mf = atStart ? mfs[0] : mfs[mfs.length - 1];
     // a new formula field may mount a moment later: focus now and again shortly after
-    const go = () => { if (!mf.hasFocus()) mf.focus(); try { mf.executeCommand(atStart ? 'moveToMathfieldStart' : 'moveToMathfieldEnd'); } catch {} };
+    // (hasFocus() can say yes before the new field is really focused, so look at the page's focus too)
+    const go = () => { if (!mf.hasFocus() || document.activeElement !== mf) mf.focus(); try { mf.executeCommand(atStart ? 'moveToMathfieldStart' : 'moveToMathfieldEnd'); } catch {} };
     go(); requestAnimationFrame(() => { if (activeId === id && !selIds.length) go(); });
+    if (document.activeElement !== mf) keyWait = {mf, id, buf: '', t0: performance.now()}, requestAnimationFrame(keyWaitTick);
   }
   setActive(id);
   el.scrollIntoView({block: 'nearest'});
 }
+// keys typed while a new formula field is still starting (about 0.1 s after Enter or ⌘E) are kept and put into it
+let keyWait = null;
+function keyWaitTick() {
+  const w = keyWait; if (!w) return;
+  if (document.activeElement === w.mf && w.mf.hasFocus()) { keyWait = null; if (w.buf) { w.mf.executeCommand(['typedText', w.buf]); } return; }
+  if (activeId !== w.id || !w.mf.isConnected || performance.now() - w.t0 > 1500) { keyWait = null; return; }
+  requestAnimationFrame(keyWaitTick);
+}
+document.addEventListener('keydown', e => {
+  const w = keyWait; if (!w) return;
+  const a = document.activeElement;
+  if (a && a !== document.body && a !== w.mf) { keyWait = null; return; }
+  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); w.buf += e.key; }
+  else if (e.key === 'Backspace' && w.buf) { e.preventDefault(); e.stopPropagation(); w.buf = w.buf.slice(0, -1); }
+}, true);
 function focusNeighbour(id, dir) {
   const i = idx(id) + dir;
   if (i < 0 || i >= doc.blocks.length) return false;
@@ -719,10 +757,13 @@ function insertBefore(id, b) {
 }
 function removeBlock(id) {
   const i = idx(id); if (i < 0) return;
+  const b = doc.blocks[i], keep = !isEmpty(b);
   doc.blocks.splice(i, 1); elOf(id).remove();
-  if (!doc.blocks.length) { insertAfter(null, mk('math')); return; }
+  // a row with something in it (picture, graph, drawing, table …) comes back with ⌘Z, like several rows
+  const undo = () => { if (!keep) return; lastRemoved = {items: [{i, b}], blank: null}; if (doc.blocks.length === 1 && isEmpty(doc.blocks[0])) lastRemoved.blank = doc.blocks[0].id; flash(tr('1 rivi') + tr(' poistettu. ⌘Z palauttaa.')); };
+  if (!doc.blocks.length) { insertAfter(null, mk('math')); undo(); return; }
   focusBlock(doc.blocks[Math.max(0, i - 1)].id, false);
-  touch();
+  touch(); undo();
 }
 function replaceBlock(id, b) {
   const i = idx(id); doc.blocks[i] = b;
@@ -747,9 +788,9 @@ function caretInfo(t) {
   const atStart = !pre.toString().replace(/\u200B/g, '').length && !pre.cloneContents().querySelector('.im'),
     atEnd = !post.toString().replace(/\u200B/g, '').length && !post.cloneContents().querySelector('img,.im');
   let rect = r.getClientRects()[0] || r.getBoundingClientRect();
-  const tr = t.getBoundingClientRect();
-  const firstLine = !rect || rect.height === 0 ? atStart : rect.top - tr.top < 22;
-  const lastLine = !rect || rect.height === 0 ? atEnd : tr.bottom - rect.bottom < 22;
+  const rw = t.getBoundingClientRect();
+  const firstLine = !rect || rect.height === 0 ? atStart : rect.top - rw.top < 22;
+  const lastLine = !rect || rect.height === 0 ? atEnd : rw.bottom - rect.bottom < 22;
   return {r, atStart, atEnd, firstLine, lastLine, collapsed: r.collapsed};
 }
 
@@ -791,7 +832,7 @@ function unitKey(e, mf) {
   if (e.metaKey || e.ctrlKey || mf.mode === 'latex') return;
   if (e.key === '"') { e.preventDefault(); e.stopImmediatePropagation(); setUnitMode(mf, !mf._unit); return; }
   if (mf._unit) {
-    if (e.key.length === 1 && /[a-zA-ZµΩ°Åå]/.test(e.key)) {
+    if (e.key.length === 1 && /[a-zA-ZµΩ°º˚Åå]/.test(e.key)) {
       e.preventDefault(); e.stopImmediatePropagation();
       // the unit so far is one upright block: replace it with the longer name
       if (mf._ubuf) mf.executeCommand('deleteBackward');
@@ -903,29 +944,81 @@ function usedAbove(b) {
   return false;
 }
 
+// Plus: ilmaisversiossa välivaiheita rajattu määrä päivässä. on:false = raja ei käytössä (testaus: ?plusdemo=1).
+const Plus = {
+  on: false, free: 5, url: 'https://victorhollo.github.io/laskuvihko/#plus',
+  active() { return this.on || /[?&]plusdemo=1/.test(location.search); },
+  day() { return new Date().toISOString().slice(0, 10); },
+  used() { try { const d = JSON.parse(localStorage.getItem('plusSteps') || '{}'); return d.day === this.day() ? d.n || 0 : 0; } catch { return 0; } },
+  unlocked() { try { return !!localStorage.getItem('plusKey'); } catch { return false; } },
+  // palauttaa false, jos päivän ilmaiset on käytetty (ja näyttää ikkunan)
+  take() {
+    if (!this.active() || this.unlocked()) return true;
+    const n = this.used();
+    if (n >= this.free) { this.dialog(); return false; }
+    try { localStorage.setItem('plusSteps', JSON.stringify({day: this.day(), n: n + 1})); } catch {}
+    const left = this.free - n - 1;
+    setTimeout(() => flash(left ? tr('Ilmaisia välivaiheita jäljellä tänään: ' + left) : tr('Tämä oli päivän viimeinen ilmainen välivaihe.')), 50);
+    return true;
+  },
+  dialog() {
+    const old = $('#plusdlg'); if (old) old.remove();
+    const d = document.createElement('div'); d.id = 'plusdlg'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true');
+    d.innerHTML = `<div class="plusbox"><div class="plusmark">Plus</div><h2>${tr('Päivän ilmaiset välivaiheet on käytetty')}</h2>
+      <p>${tr('Ilmaisversiossa saat ' + this.free + ' välivaiheratkaisua päivässä. Laskuvihko Plus näyttää välivaiheet ilman rajaa.')}</p>
+      <p class="plusdim">${tr('Kaikki muu toimii kuten ennen: laskut, yksiköt, kuvaajat ja PDF.')}</p>
+      <div class="plusbtns"><button class="pluslater">${tr('Jatka ilman')}</button><a class="plusgo" href="${this.url}" target="_blank" rel="noopener">${tr('Liity odotuslistalle')}</a></div></div>`;
+    const close = () => { d.remove(); removeEventListener('keydown', esc, true); };
+    const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    d.onclick = e => { if (e.target === d || e.target.closest('.pluslater')) close(); };
+    addEventListener('keydown', esc, true);
+    document.body.appendChild(d); d.querySelector('.plusgo').focus();
+  },
+};
 function calc(action, forced) {
   let b = forced || (activeId && byId(activeId));
   if (!b || b.type !== 'math') {
     if (b && b.type === 'graph') return;
     b = [...doc.blocks].reverse().find(x => x.type === 'math' && x.latex.trim());
-    if (!b) return flash('Kirjoita ensin kaava kaavariville.');
+    if (!b) return flash(tr('Kirjoita ensin kaava kaavariville.'));
   }
   const bm = elOf(b.id).querySelector('math-field.main');
   if (bm.mode === 'latex') { try { bm.executeCommand('complete'); b.latex = bm.value; } catch {} }
-  if (!b.latex.trim()) return flash('Kirjoita ensin kaava.');
-  Calc.resetDefs();
-  for (const x of doc.blocks) {
-    if (x === b) break;
-    if (x.type === 'math') { try { Calc.define(x.latex); } catch {} }
-  }
-  try { const r = Calc.run(action, b.latex, {v: b.v}); b.res = r.tex; b.chart = r.chart || null; b.stat = r.rows || null; b.steps = r.steps || null; b.err = null; b.act = action; b.vars = r.vars && r.vars.length > 1 ? r.vars : null; b.vsub = r.vsub || null; if (r.v) b.v = r.v;
-    if (/^\\text\{(?:muistissa|määritelty) \}/.test(b.res) && usedAbove(b)) b.res += '\\quad\\text{(vain alemmille riveille – siirrä tämä rivi ylös)}'; }
-  catch (e) { b.pick = e && e.pick ? {...e.pick, act: action} : null; b.res = null; b.vars = null; b.chart = null; b.stat = null; b.steps = null; b.err = e instanceof Calc.Err ? e.message : /division by zero/i.test(String(e && e.message)) ? 'Nollalla ei voi jakaa.' : /is undefined for/i.test(String(e && e.message)) ? 'Ei määritelty tällä arvolla (esim. tan 90°).' : 'En osaa laskea tätä. Tarkista kaava.'; console.warn(e); }
+  if (!b.latex.trim()) return flash(tr('Kirjoita ensin kaava.'));
+  if (action === 'steps' && !Plus.take()) return;
+  compute(b, action);
   showResult(elOf(b.id), b);
   touch();
   const i = idx(b.id);
   if (!b.err && i === doc.blocks.length - 1) insertAfter(b.id, mk('math'));
   else focusBlock(b.id, false);
+}
+// work out one row and keep the answer in it (b.lang = the language the answer is written in)
+function compute(b, action) {
+  Calc.resetDefs();
+  for (const x of doc.blocks) {
+    if (x === b) break;
+    if (x.type === 'math') { try { Calc.define(x.latex); } catch {} }
+  }
+  b.lang = Kieli.lang; b.act = action;
+  try { const r = trAll(Calc.run(action, b.latex, {v: b.v})); b.res = r.tex; b.chart = r.chart || null; b.stat = r.rows || null; b.steps = r.steps || null; b.err = null; b.act = action; b.vars = r.vars && r.vars.length > 1 ? r.vars : null; b.vsub = r.vsub || null; if (r.v) b.v = r.v;
+    if (b.res && [tr('muistissa'), tr('määritelty')].some(w => b.res.startsWith('\\text{' + w + ' }')) && usedAbove(b)) b.res += Kieli.tex('\\quad\\text{(vain alemmille riveille – siirrä tämä rivi ylös)}'); }
+  catch (e) { b.pick = e && e.pick ? {...e.pick, act: action} : null; b.res = null; b.vars = null; b.chart = null; b.stat = null; b.steps = null; b.err = e instanceof Calc.Err ? tr(e.message) : /division by zero/i.test(String(e && e.message)) ? tr('Nollalla ei voi jakaa.') : /is undefined/i.test(String(e && e.message)) ? tr('Ei määritelty tällä arvolla (esim. tan 90°, ln 0, 0⁰).') : tr('En osaa laskea tätä. Tarkista kaava.'); console.warn(e); }
+}
+// answers saved in another language (or before the language was saved: Finnish) are worked out again,
+// so words and the decimal mark follow the chosen language. Waits a moment for Giac, like a normal calculation.
+function relang(tries = 0) {
+  const old = doc.blocks.filter(b => b.type === 'math' && b.act && (b.res || b.err) && (b.lang || 'fi') !== Kieli.lang);
+  if (!old.length) return;
+  if (!self.giacEval && tries < 40) return setTimeout(() => relang(tries + 1), 250);
+  const d = doc;
+  for (const b of old) {
+    if (doc !== d || !elOf(b.id)) return;
+    const was = JSON.stringify(b); compute(b, b.act);
+    if (b.err && !JSON.parse(was).err) Object.assign(b, JSON.parse(was));  // keep a good answer if it fails now
+    showResult(elOf(b.id), b);
+  }
+  if (!saveTimer) saveTimer = setTimeout(saveNow, 600);
 }
 
 // ---------- palette ----------
@@ -1049,7 +1142,7 @@ function buildPalette() {
   }
   const help = document.createElement('div'); help.className = 'help';
   // shortcuts: small groups, key on the left, what it does on the right
-  const K = k => k.split(' ').map(x => `<kbd>${x}</kbd>`).join('');
+  const K = k => kb(k).split(' ').map(x => `<kbd>${x}</kbd>`).join('');
   const HELP = [
     ['Uusi rivi', [['⌘ E', 'kaava'], ['⌘ T', 'teksti'], ['⌘ G', 'kuvaaja'], ['⌘ ⇧ P', 'piirros'], ['⌘ ⇧ T', 'taulukko']]],
     ['Laskeminen', [['⌘ ↩', 'laske'], ['⌘ L', 'likiarvo'], ['⌘ R', 'ratkaise'], ['⌘ D', 'derivoi'], ['⌘ J', 'vaiheittain'], ['= ↩', 'laskee heti, esim. 2+3=']]],
@@ -1097,26 +1190,79 @@ function insertLatex(latex, plain, asText) {
 
 // ---------- files ----------
 function serialize() { doc.title = $('#title').value; return JSON.stringify(doc); }
+// Browser autosave: the notebook goes to IndexedDB (room for many photos; localStorage holds only ~5 MB).
+// Small settings (language, keys, theme) stay in localStorage. When the page closes, the newest state is also
+// written to localStorage at once ('lvPending', if it fits), because an IndexedDB write may not finish in time.
+const Store = (() => {
+  let db = null, ready = false, saveNo = 0, doneNo = 0, warned = false;
+  const opened = native ? Promise.resolve() : new Promise(ok => {
+    try { const r = indexedDB.open('laskuvihko-doc', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => { db = r.result; ok(); }; r.onerror = () => ok(); r.onblocked = () => ok(); } catch { ok(); }
+  });
+  const warn = () => { if (warned) return; warned = true; flash(tr('Automaattinen tallennus epäonnistui (tila täynnä). Tallenna vihko tiedostoksi, ettei työ katoa.'), 9000); };
+  const lsPut = (data, d) => { try { localStorage.setItem('laskuvihko', data); localStorage.setItem('lvDirty', d ? '1' : ''); return true; } catch { return false; } };
+  function put(data, d) {
+    try { localStorage.setItem('lvDirty', d ? '1' : ''); } catch {}
+    const no = ++saveNo, t = Date.now();
+    if (!db) { if (lsPut(data, d)) warned = false; else warn(); return; }
+    try {
+      const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put({t, data}, 'doc');
+      tx.oncomplete = () => { doneNo = Math.max(doneNo, no); warned = false; if (doneNo === saveNo) try { localStorage.removeItem('lvPending'); localStorage.removeItem('laskuvihko'); } catch {} };
+      tx.onerror = tx.onabort = () => warn();
+    } catch { warn(); }
+  }
+  return {
+    get ready() { return ready; },
+    get busy() { return doneNo < saveNo; },
+    // the saved notebook (newest of IndexedDB and the page-close copy; old localStorage notebooks are moved over)
+    async get() {
+      await opened;
+      let rec = null;
+      if (db) rec = await new Promise(ok => { try { const q = db.transaction('kv').objectStore('kv').get('doc'); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); } catch { ok(null); } });
+      let pend = null, old = null; try { pend = JSON.parse(localStorage.getItem('lvPending') || 'null'); old = localStorage.getItem('laskuvihko'); } catch {}
+      let data = rec ? rec.data : old;
+      if (pend && pend.data && (!rec || pend.t >= rec.t)) data = pend.data;
+      ready = true;
+      // move it into IndexedDB now; the localStorage copies are removed only after that write has finished
+      let d = false; try { d = !!localStorage.getItem('lvDirty'); } catch {}
+      if (data && db && (!rec || data !== rec.data)) put(data, d);
+      return data;
+    },
+    put,
+    // page closing: write now, and keep a quick copy in case the IndexedDB write is cut off
+    flush(data, d) {
+      put(data, d);
+      if (db && doneNo < saveNo) try { localStorage.setItem('lvPending', JSON.stringify({t: Date.now(), data})); } catch {}
+    },
+  };
+})();
+function saveNow(closing) {
+  clearTimeout(saveTimer); saveTimer = null;
+  const data = serialize();
+  if (native) post({cmd: 'autosave', data, dirty});
+  else if (Store.ready) (closing ? Store.flush : Store.put)(data, dirty);
+}
 function touch() {
   dirty = true; status();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    const data = serialize();
-    if (native) post({cmd: 'autosave', data, dirty});
-    else try { localStorage.setItem('laskuvihko', data); } catch {}
-  }, 600);
+  saveTimer = setTimeout(saveNow, 600);
+}
+// closing or reloading the page (or hiding it): save the last change at once
+if (!native) {
+  const bye = () => { if (saveTimer || Store.busy) saveNow(true); };
+  addEventListener('pagehide', bye); addEventListener('beforeunload', bye);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') bye(); });
 }
 function status(msg) {
-  const name = fileName || 'Nimetön';
-  $('#status').textContent = msg || (name + (dirty ? ' — muokattu' : ''));
+  const name = fileName || tr('Nimetön');
+  $('#status').textContent = msg || (name + (dirty ? tr(' — muokattu') : ''));
 }
 let flashT;
 // short messages float at the bottom, so the toolbar never changes size and the page doesn't jump
-function flash(msg) {
+function flash(msg, ms = 2500) {
   let t = $('#toast');
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
-  t.textContent = msg; t.classList.add('show');
-  clearTimeout(flashT); flashT = setTimeout(() => t.classList.remove('show'), 2500);
+  t.textContent = kb(msg); t.classList.add('show');
+  clearTimeout(flashT); flashT = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 function load(data, name) {
@@ -1127,14 +1273,15 @@ function load(data, name) {
     fileName = name || null; dirty = false; activeId = null; lastMf = null;
     render();
     focusBlock(doc.blocks[0].id, false);
-    if (native && $('#files').classList.contains('show')) post({cmd: 'listDocs'});
-  } catch { flash('Tiedostoa ei voitu avata.'); }
+    relang();
+    if (hasFS && $('#files').classList.contains('show')) post({cmd: 'listDocs'});
+  } catch { flash(tr('Tiedostoa ei voitu avata.')); }
 }
 
 // ---------- colour themes ----------
-const THEMES = [['olive', 'Alkuperäinen (oliivi)', '#f4efe3', '#3e442a'], ['apple', 'Valkoinen ja sininen', '#fff', '#0071e3'], ['coral', 'Paperi ja koralli', '#f6f4f1', '#f95c4b'], ['night', 'Yönsininen', '#0d1321', '#748cab'], ['copper', 'Hiili ja kupari', '#1c292f', '#a14c1c']];
+const THEMES = [['olive', tr('Alkuperäinen (oliivi)'), '#f4efe3', '#3e442a'], ['apple', tr('Valkoinen ja sininen'), '#fff', '#0071e3'], ['coral', tr('Paperi ja koralli'), '#f6f4f1', '#f95c4b'], ['night', tr('Yönsininen'), '#0d1321', '#748cab'], ['copper', tr('Hiili ja kupari'), '#1c292f', '#a14c1c']];
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
-let themeChoice = 'auto'; try { themeChoice = localStorage.getItem('theme') || 'auto'; } catch {}
+let themeChoice = 'apple'; try { themeChoice = localStorage.getItem('theme') || 'apple'; } catch {}
 function applyTheme(force) {
   const t = force || (themeChoice === 'auto' ? (darkMQ.matches ? 'night' : 'apple') : themeChoice);
   if (document.documentElement.dataset.theme === t) return;
@@ -1152,13 +1299,42 @@ function themeMenu() {
     b.onclick = () => { themeChoice = id; try { localStorage.setItem('theme', id); } catch {} applyTheme(); m.remove(); };
     m.appendChild(b);
   };
-  item('auto', 'Seuraa Macia (vaalea / tumma)');
+  item('auto', tr('Seuraa Macia (vaalea / tumma)'));
   m.appendChild(document.createElement('hr'));
   THEMES.forEach(t => item(...t));
   const r = $('[data-cmd=theme]').getBoundingClientRect();
   m.style.top = r.bottom + 6 + 'px'; m.style.left = Math.min(r.left, innerWidth - 230) + 'px';
   document.body.appendChild(m);
   setTimeout(() => document.addEventListener('pointerdown', function off(e) { if (!m.contains(e.target) && !e.target.closest('[data-cmd=theme]')) m.remove(); if (!m.isConnected) document.removeEventListener('pointerdown', off); }), 0);
+}
+// Mac / Windows: which keys the tips and the shortcut list show; the page reloads like with the language (the notebook stays)
+function osMenu() {
+  const old = $('#osmenu'); if (old) return old.remove();
+  const m = document.createElement('div'); m.id = 'osmenu';
+  for (const [id, nimi] of [['mac', 'Mac'], ['win', 'Windows']]) {
+    const on = (isMac ? 'mac' : 'win') === id;
+    const b = document.createElement('button'); b.className = on ? 'on' : ''; b.textContent = nimi;
+    b.onclick = () => { if (on) return m.remove(); saveNow(true); try { localStorage.setItem('lvOS', id); } catch {} setTimeout(() => location.reload(), 100); };
+    m.appendChild(b);
+  }
+  const r = $('#osbtn').getBoundingClientRect();
+  m.style.top = r.bottom + 6 + 'px'; m.style.left = Math.min(r.left, innerWidth - 170) + 'px';
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('pointerdown', function off(e) { if (!m.contains(e.target) && !e.target.closest('#osbtn')) m.remove(); if (!m.isConnected) document.removeEventListener('pointerdown', off); }), 0);
+}
+// kieli: oma nappi työkalurivillä; valinta tallennetaan ja sivu ladataan uudelleen (vihko säilyy automaattitallennuksessa)
+function langMenu() {
+  const old = $('#langmenu'); if (old) return old.remove();
+  const m = document.createElement('div'); m.id = 'langmenu'; m.className = 'popmenu';
+  for (const [l, nimi] of Object.entries(Kieli.nimet)) {
+    const b = document.createElement('button'); b.className = Kieli.lang === l ? 'on' : ''; b.textContent = nimi;
+    b.onclick = () => { if (l === Kieli.lang) return m.remove(); saveNow(true); Kieli.set(l); post({cmd: 'lang', lang: l}); setTimeout(() => location.reload(), 150); };
+    m.appendChild(b);
+  }
+  const r = $('#langbtn').getBoundingClientRect();
+  m.style.top = r.bottom + 6 + 'px'; m.style.left = Math.min(r.left, innerWidth - 170) + 'px';
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('pointerdown', function off(e) { if (!m.contains(e.target) && !e.target.closest('#langbtn')) m.remove(); if (!m.isConnected) document.removeEventListener('pointerdown', off); }), 0);
 }
 
 // ---------- search in all notebooks ----------
@@ -1179,7 +1355,7 @@ function searchText(b) {
 function searchMenu() {
   const old = $('#searchbox'); if (old) return old.remove();
   const box = document.createElement('div'); box.id = 'searchbox';
-  box.innerHTML = '<input type="search" placeholder="Etsi kaikista vihkoista, esim. derivaatta tai x^2"><div class="sinfo"></div><div class="sres"></div>';
+  box.innerHTML = '<input type="search" placeholder="' + tr('Etsi kaikista vihkoista, esim. derivaatta tai x^2') + '"><div class="sinfo"></div><div class="sres"></div>';
   document.body.appendChild(box);
   const inp = box.querySelector('input'), info = box.querySelector('.sinfo'), list = box.querySelector('.sres');
   let first = null;
@@ -1187,11 +1363,12 @@ function searchMenu() {
     const q = inp.value.trim().toLowerCase(), terms = q.split(/\s+/).filter(Boolean);
     list.textContent = ''; first = null;
     // the open notebook is searched as it is now (also unsaved changes)
-    const docs = [{path: searchCur, cur: true, name: $('#title').value || fileName || 'Tämä vihko', blocks: doc.blocks, mod: Date.now()},
+    const docs = [{path: searchCur, cur: true, name: $('#title').value || fileName || tr('Tämä vihko'), blocks: doc.blocks, mod: Date.now()},
       ...(searchDocs || []).filter(d => d.path !== searchCur)];
-    if (!native && !searchDocs) info.textContent = 'Selaimessa haku katsoo vain tätä vihkoa.';
-    else if (native && !searchDocs) info.textContent = 'Haetaan vihkoja…';
-    else info.textContent = (searchDocs.length || 1) + ' vihkoa';
+    if (!hasFS && !searchDocs) info.textContent = tr('Selaimessa haku katsoo vain tätä vihkoa.');
+    else if (fsa && WebFS.need) info.textContent = tr('Valitse vihkokansio Vihkot-listasta, niin haku katsoo kaikkia vihkoja.');
+    else if (hasFS && !searchDocs) info.textContent = tr('Haetaan vihkoja…');
+    else info.textContent = (searchDocs.length || 1) + tr(' vihkoa');
     if (!terms.length) return;
     let hits = 0;
     for (const d of docs) {
@@ -1204,8 +1381,8 @@ function searchMenu() {
       hits += rows.length || 1;
       // the notebook title is a button: it opens the notebook at the top
       const h = document.createElement('button'); h.className = 'sdoc';
-      const nm = document.createElement('b'); nm.textContent = name + (d.cur ? ' (auki)' : ''); h.appendChild(nm);
-      const dt = document.createElement('span'); dt.textContent = d.cur ? '' : new Date(d.mod).toLocaleDateString('fi-FI'); h.appendChild(dt);
+      const nm = document.createElement('b'); nm.textContent = name + (d.cur ? tr(' (auki)') : ''); h.appendChild(nm);
+      const dt = document.createElement('span'); dt.textContent = d.cur ? '' : Kieli.pvm(d.mod); h.appendChild(dt);
       h.onclick = () => openHit(d, null);
       if (nameHit && !first) first = h;
       list.appendChild(h);
@@ -1221,14 +1398,14 @@ function searchMenu() {
         if (!first) first = r;
         list.appendChild(r);
       }
-      if (rows.length > 6) { const more = document.createElement('div'); more.className = 'smore'; more.textContent = '+ ' + (rows.length - 6) + ' riviä lisää'; list.appendChild(more); }
+      if (rows.length > 6) { const more = document.createElement('div'); more.className = 'smore'; more.textContent = '+ ' + (rows.length - 6) + tr(' riviä lisää'); list.appendChild(more); }
     }
-    if (!hits) { const n = document.createElement('div'); n.className = 'smore'; n.textContent = 'Ei osumia.'; list.appendChild(n); }
+    if (!hits) { const n = document.createElement('div'); n.className = 'smore'; n.textContent = tr('Ei osumia.'); list.appendChild(n); }
   };
   const openHit = (d, i) => {
     box.remove();
     if (d.cur) { if (i === null) { window.scrollTo({top: 0, behavior: 'smooth'}); return; } return jumpTo(i); }
-    if (dirty && hasContent() && !confirm('Avataanko toinen vihko? Tämän vihkon tallentamattomat muutokset häviävät.')) return;
+    if (dirty && hasContent() && !confirm(tr('Avataanko toinen vihko? Tämän vihkon tallentamattomat muutokset häviävät.'))) return;
     post(i === null ? {cmd: 'openPath', path: d.path} : {cmd: 'openPath', path: d.path, row: i});
   };
   box._run = run;
@@ -1236,7 +1413,7 @@ function searchMenu() {
   inp.addEventListener('keydown', e => { if (e.key === 'Escape') box.remove(); if (e.key === 'Enter' && first) first.click(); });
   setTimeout(() => document.addEventListener('pointerdown', function off(e) { if (!box.contains(e.target) && !e.target.closest('[data-cmd=search]')) box.remove(); if (!box.isConnected) document.removeEventListener('pointerdown', off); }), 0);
   searchDocs = null;
-  if (native) post({cmd: 'listDocs'});
+  if (hasFS) post({cmd: 'listDocs'});
   run(); inp.focus();
 }
 // ---------- all notebooks in a side list ----------
@@ -1244,30 +1421,38 @@ function renderFiles() {
   const box = $('#files'); if (!box.classList.contains('show')) return;
   const q = (box.querySelector('input') || {}).value || '';
   if (!box.querySelector('input')) {
-    box.innerHTML = '<div class="fhead">Vihkot</div><input type="search" placeholder="Suodata nimellä"><div class="flist"></div>';
+    box.innerHTML = tr('<div class="fhead">Vihkot</div><input type="search" placeholder="Suodata nimellä"><div class="flist"></div>');
     box.querySelector('input').addEventListener('input', renderFiles);
   }
   const list = box.querySelector('.flist'); list.textContent = '';
-  if (!native) { list.innerHTML = '<div class="fnote">Vihkolista toimii Mac-sovelluksessa.</div>'; return; }
-  if (!searchDocs) { list.innerHTML = '<div class="fnote">Haetaan vihkoja…</div>'; return; }
+  if (!hasFS) { list.innerHTML = tr('<div class="fnote">Vihkolista toimii Mac-sovelluksessa sekä Chromessa ja Edgessä.</div>'); return; }
+  if (fsa && WebFS.need) {
+    list.innerHTML = WebFS.need === 'pick' ? tr('<div class="fnote">Valitse kansio, johon vihkosi tallennetaan (esim. Dokumentit/Laskuvihko). Lista näyttää sen vihkot.</div><button class="fbtn">Valitse kansio</button>')
+      : tr('<div class="fnote">Salli Laskuvihon käyttää kansiota <b></b>.</div><button class="fbtn">Salli</button>');
+    const b = list.querySelector('.fnote b'); if (b) b.textContent = WebFS.folderName();
+    list.querySelector('.fbtn').onclick = () => WebFS.need === 'pick' ? WebFS.pickFolder() : WebFS.allowFolder();
+    return;
+  }
+  if (!searchDocs) { list.innerHTML = tr('<div class="fnote">Haetaan vihkoja…</div>'); return; }
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const docs = searchDocs.slice().sort((a, b) => b.mod - a.mod)
     .filter(d => words.every(w => ((d.title || '') + ' ' + d.name).toLowerCase().includes(w)));
-  if (!docs.length) { list.innerHTML = '<div class="fnote">' + (searchDocs.length ? 'Ei osumia.' : 'Ei tallennettuja vihkoja vielä.') + '</div>'; return; }
+  if (!docs.length) { list.innerHTML = '<div class="fnote">' + (searchDocs.length ? tr('Ei osumia.') : tr('Ei tallennettuja vihkoja vielä.')) + '</div>'; if (!fsa) return; }
   for (const d of docs) {
     const btn = document.createElement('button'); btn.className = 'fitem' + (d.path === searchCur ? ' cur' : '');
     btn.title = d.path;
     const nm = document.createElement('b'); nm.textContent = d.title || d.name; btn.appendChild(nm);
-    const dt = document.createElement('span'); dt.textContent = new Date(d.mod).toLocaleDateString('fi-FI') + (d.title && d.title !== d.name ? ' · ' + d.name : ''); btn.appendChild(dt);
+    const dt = document.createElement('span'); dt.textContent = Kieli.pvm(d.mod) + (d.title && d.title !== d.name ? ' · ' + d.name : ''); btn.appendChild(dt);
     btn.addEventListener('mousedown', e => e.preventDefault());
     btn.onclick = () => {
       if (d.path === searchCur) return;
-      if (dirty && hasContent() && !confirm('Avataanko toinen vihko? Tämän vihkon tallentamattomat muutokset häviävät.')) return;
+      if (dirty && hasContent() && !confirm(tr('Avataanko toinen vihko? Tämän vihkon tallentamattomat muutokset häviävät.'))) return;
       searchCur = d.path; renderFiles();
       post({cmd: 'openPath', path: d.path});
     };
     list.appendChild(btn);
   }
+  if (fsa) { const c = document.createElement('div'); c.className = 'fnote ffold'; c.textContent = tr('Kansio: ') + WebFS.folderName() + ' · '; const a = document.createElement('button'); a.className = 'flink'; a.textContent = tr('Vaihda'); a.onclick = () => WebFS.pickFolder(); c.appendChild(a); list.appendChild(c); }
 }
 function jumpTo(i) {
   const b = doc.blocks[i]; if (!b) return;
@@ -1284,11 +1469,11 @@ function webShot() {
   const blob = lib.then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
     .then(() => { const pg = $('#page'); return modernScreenshot.domToBlob(pg, {scale: 2, type: 'image/png', backgroundColor: getComputedStyle(pg).backgroundColor}); });
   const done = msg => { document.documentElement.classList.remove('shot'); applyTheme(); $('#scroll').scrollTop = shotScroll; flash(msg); };
-  const save = () => blob.then(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = ($('#title').value || 'Nimetön') + '.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); done('Selain ei antanut kopioida, joten kuva ladattiin tiedostona'); });
+  const save = () => blob.then(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = ($('#title').value || tr('Nimetön')) + '.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); done(tr('Selain ei antanut kopioida, joten kuva ladattiin tiedostona')); });
   let copy;
   try { copy = navigator.clipboard.write([new ClipboardItem({'image/png': blob})]); } catch (e) { copy = Promise.reject(e); }
-  copy.then(() => done('Sivu kopioitu kuvana – liitä ' + (/Mac/.test(navigator.platform) ? '⌘V' : 'Ctrl+V')), () => save())
-    .catch(e => { console.warn(e); done('Kuvakaappaus epäonnistui'); });
+  copy.then(() => done(tr('Sivu kopioitu kuvana – liitä ') + '⌘V'), () => save())
+    .catch(e => { console.warn(e); done(tr('Kuvakaappaus epäonnistui')); });
 }
 // ---------- lihavointi ja värikorostus (valittu kohta tekstissä tai kaavassa) ----------
 function fmtTarget() {
@@ -1303,28 +1488,49 @@ function fmtTarget() {
   return null;
 }
 function fmtMath(mf, style) {
-  if (mf.selectionIsCollapsed) { flash('Valitse ensin kohta, jonka haluat korostaa'); return; }
+  if (mf.selectionIsCollapsed) { flash(tr('Valitse ensin kohta, jonka haluat korostaa')); return; }
   mf.applyStyle(style);
   mf.dispatchEvent(new Event('input', {bubbles: true}));
 }
+// text with a formula in it: the browser stops bold/colour at the formula, so each text part around it gets its own turn
+function fmtParts(t, apply) {
+  const s = getSelection(); if (!s.rangeCount) return apply();
+  const r = s.getRangeAt(0), all = r.cloneRange();
+  const ims = [...t.querySelectorAll('span.im')].filter(x => r.intersectsNode(x));
+  if (!ims.length) return apply();
+  const parts = []; let a = [r.startContainer, r.startOffset];
+  for (const im of ims) {
+    const p = document.createRange(); p.setStart(...a); p.setEndBefore(im); parts.push(p);
+    const q = document.createRange(); q.setStartAfter(im); a = [q.startContainer, q.startOffset];
+  }
+  const last = document.createRange(); last.setStart(...a); last.setEnd(r.endContainer, r.endOffset); parts.push(last);
+  const pick = p => { s.removeAllRanges(); s.addRange(p); };
+  const real = parts.filter(p => !p.collapsed && p.toString().replace(/\u200B/g, ''));
+  if (apply.start) apply.start(real, pick);
+  for (const p of real.reverse()) { pick(p); apply(); }
+  s.removeAllRanges(); s.addRange(all);
+}
 function highlight(color) {
   const f = fmtTarget();
-  if (!f) { flash('Valitse ensin teksti tai kaavan osa'); return; }
+  if (!f) { flash(tr('Valitse ensin teksti tai kaavan osa')); return; }
   if (f.mf) return fmtMath(f.mf, color ? {backgroundColor: color, color: '#1c1c1e'} : {backgroundColor: 'none', color: 'none'});
-  if (getSelection().isCollapsed) { flash('Valitse ensin teksti, jonka haluat korostaa'); return; }
+  if (getSelection().isCollapsed) { flash(tr('Valitse ensin teksti, jonka haluat korostaa')); return; }
   document.execCommand('styleWithCSS', false, true);
-  if (color) document.execCommand('hiliteColor', false, color);
-  else document.execCommand('removeFormat');
+  fmtParts(f.t, () => { if (color) document.execCommand('hiliteColor', false, color); else document.execCommand('removeFormat'); });
   document.execCommand('styleWithCSS', false, false);
   f.t.dispatchEvent(new Event('input', {bubbles: true}));
 }
 const commands = {
   bold() {
     const f = fmtTarget();
-    if (!f) { flash('Valitse ensin teksti'); return; }
-    if (f.mf) { flash('Lihavointi toimii tekstissä. Kaavaan käytä korostusta.'); return; }
+    if (!f) { flash(tr('Valitse ensin teksti')); return; }
+    if (f.mf) { flash(tr('Lihavointi toimii tekstissä. Kaavaan käytä korostusta.')); return; }
     document.execCommand('styleWithCSS', false, false);
-    document.execCommand('bold');
+    // over several parts: all bold → all plain, otherwise all bold
+    let on = null;
+    const bold = () => { if (on === null || document.queryCommandState('bold') === on) document.execCommand('bold'); };
+    bold.start = (ps, pick) => { on = ps.every(p => (pick(p), document.queryCommandState('bold'))); };
+    fmtParts(f.t, bold);
     f.t.dispatchEvent(new Event('input', {bubbles: true}));
   },
   hlY() { highlight('#fde68a'); }, hlG() { highlight('#bbf7d0'); }, hlB() { highlight('#bfdbfe'); }, hlP() { highlight('#fbcfe8'); },
@@ -1332,17 +1538,16 @@ const commands = {
   tables() {
     const t = $('#tables'), on = t.classList.toggle('show');
     $('[data-cmd=tables]').classList.toggle('on', on);
-    const fr = t.querySelector('iframe');
-    if (on && !fr.src) fr.src = 'https://mafytaulukot.fi/';
+    if (on) Kaavasto.rakenna();
     // kapea ikkuna: muut sivupaneelit pois, ettei vihko litisty
     if (on && innerWidth < 1400) { if ($('#palette').classList.contains('show')) commands.palette(); if ($('#files').classList.contains('show')) commands.files(); }
     try { localStorage.setItem('tables', on ? '1' : ''); } catch {}
   },
-  new() { if (dirty && fileName !== null && !confirm('Aloitetaanko uusi? Tallentamattomat muutokset häviävät.')) return; if (dirty && fileName === null && hasContent() && !confirm('Aloitetaanko uusi? Tätä vihkoa ei ole tallennettu.')) return; doc = blank(); fileName = null; dirty = false; render(); focusBlock(doc.blocks[0].id); post({cmd: 'new'}); touch(); dirty = false; status(); },
-  open() { if (native) post({cmd: 'open'}); else { const i = document.createElement('input'); i.type = 'file'; i.accept = '.laskuvihko,.json'; i.onchange = () => i.files[0].text().then(t => load(t, i.files[0].name.replace(/\.[^.]+$/, ''))); i.click(); } },
-  save() { if (native) post({cmd: 'save', data: serialize(), name: $('#title').value || 'Nimetön'}); else download(); },
-  saveAs() { if (native) post({cmd: 'saveAs', data: serialize(), name: $('#title').value || 'Nimetön'}); else download(); },
-  pdf() { document.activeElement && document.activeElement.blur(); applyTheme('apple'); if (native) post({cmd: 'pdf', name: $('#title').value || fileName || 'Nimetön'}); else { print(); applyTheme(); } },
+  new() { if (dirty && fileName !== null && !confirm(tr('Aloitetaanko uusi? Tallentamattomat muutokset häviävät.'))) return; if (dirty && fileName === null && hasContent() && !confirm(tr('Aloitetaanko uusi? Tätä vihkoa ei ole tallennettu.'))) return; doc = blank(); fileName = null; dirty = false; render(); focusBlock(doc.blocks[0].id); post({cmd: 'new'}); touch(); dirty = false; status(); },
+  open() { if (hasFS) post({cmd: 'open'}); else { const i = document.createElement('input'); i.type = 'file'; i.accept = '.laskuvihko,.json'; i.onchange = () => i.files[0].text().then(t => load(t, i.files[0].name.replace(/\.[^.]+$/, ''))); i.click(); } },
+  save() { if (hasFS) post({cmd: 'save', data: serialize(), name: $('#title').value || tr('Nimetön')}); else download(); },
+  saveAs() { if (hasFS) post({cmd: 'saveAs', data: serialize(), name: $('#title').value || tr('Nimetön')}); else download(); },
+  pdf() { document.activeElement && document.activeElement.blur(); applyTheme('apple'); if (native) post({cmd: 'pdf', name: $('#title').value || fileName || tr('Nimetön')}); else { print(); applyTheme(); } },
   shot() {  // whole page as one picture on the clipboard (Mac app does the capture)
     if (!native) return webShot();
     shotScroll = $('#scroll').scrollTop; deactivate(); applyTheme('apple'); document.documentElement.classList.add('shot');
@@ -1362,14 +1567,16 @@ const commands = {
   addImage() { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.multiple = true; i.onchange = () => addImages(i.files); i.click(); },
   calc() { calc('calc'); }, approx() { calc('approx'); }, simplify() { calc('simplify'); }, solve() { calc('solve'); },
   factor() { calc('factor'); }, expand() { calc('expand'); }, diff() { calc('diff'); }, steps() { calc('steps'); }, integrate() { calc('integrate'); },
-  angle() { doc.deg = !Calc.deg; Calc.deg = doc.deg; $('#angle').textContent = Calc.deg ? 'DEG' : 'RAD'; flash(Calc.deg ? 'Kulmat asteina' : 'Kulmat radiaaneina'); touch(); },
+  angle() { doc.deg = !Calc.deg; Calc.deg = doc.deg; $('#angle').textContent = Calc.deg ? 'DEG' : 'RAD'; flash(Calc.deg ? tr('Kulmat asteina') : tr('Kulmat radiaaneina')); touch(); },
   theme() { themeMenu(); },
+  lang() { langMenu(); },
+  os() { osMenu(); },
   search() { searchMenu(); },
   files() {
     const f = $('#files'); f.classList.toggle('show'); const on = f.classList.contains('show');
     $('[data-cmd=files]').classList.toggle('on', on);
     try { localStorage.setItem('files', on ? '1' : ''); } catch {}
-    if (on) { renderFiles(); if (native) post({cmd: 'listDocs'}); }
+    if (on) { renderFiles(); if (hasFS) post({cmd: 'listDocs'}); }
   },
   palette() { const p = $('#palette'); p.classList.toggle('show'); if (p.classList.contains('show') && innerWidth < 1400 && $('#tables').classList.contains('show')) commands.tables(); $('[data-cmd=palette]').classList.toggle('on', p.classList.contains('show')); post({cmd: 'pref', palette: p.classList.contains('show')}); },
 };
@@ -1377,7 +1584,7 @@ const hasContent = () => doc.blocks.some(b => !isEmpty(b)) || $('#title').value;
 function download() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([serialize()], {type: 'application/json'}));
-  a.download = ($('#title').value || 'Nimetön') + '.laskuvihko'; a.click();
+  a.download = ($('#title').value || tr('Nimetön')) + '.laskuvihko'; a.click();
   dirty = false; status();
 }
 
@@ -1388,12 +1595,14 @@ window.App = {
     addImages(urls.map((u, i) => { const b = atob(u.split(',')[1]), a = new Uint8Array(b.length); for (let j = 0; j < b.length; j++) a[j] = b.charCodeAt(j); return new File([a], 'kuva' + i + '.png', {type: 'image/png'}); }));
   },
   load,
-  saved(name) { fileName = name; dirty = false; flash('Tallennettu'); if ($('#files').classList.contains('show') && native) post({cmd: 'listDocs'}); post({cmd: 'autosave', data: serialize(), dirty: false}); },
+  saved(name) { fileName = name; dirty = false; status(); flash(tr('Tallennettu')); if ($('#files').classList.contains('show') && hasFS) post({cmd: 'listDocs'}); post({cmd: 'autosave', data: serialize(), dirty: false}); },
+  saveFailed(msg) { flash(msg); },
+  setFile(name, d) { fileName = name; dirty = d; status(); },
   restore(data, name, wasDirty) { load(data, name); dirty = !!wasDirty; status(); },
   showPalette(v) { if (v !== $('#palette').classList.contains('show')) commands.palette(); },
   isDirty: () => dirty,
   printDone: () => applyTheme(),
-  shotDone(ok) { document.documentElement.classList.remove('shot'); applyTheme(); $('#scroll').scrollTop = shotScroll; flash(ok ? 'Sivu kopioitu kuvana – liitä ⌘V' : 'Kuvakaappaus epäonnistui'); },
+  shotDone(ok) { document.documentElement.classList.remove('shot'); applyTheme(); $('#scroll').scrollTop = shotScroll; flash(ok ? tr('Sivu kopioitu kuvana – liitä ⌘V') : tr('Kuvakaappaus epäonnistui')); },
   docs(list, cur) { searchDocs = list; searchCur = cur; const b = $('#searchbox'); if (b) b._run(); renderFiles(); },
   showFiles(v) { if (v !== $('#files').classList.contains('show')) commands.files(); },
   jumpTo: i => setTimeout(() => jumpTo(i), 150),
@@ -1443,12 +1652,12 @@ function pasteRows(after) {
     insertAfter(prev, b, false); prev = b.id; first = first || b.id; last = b.id;
   }
   if (first) selectRange(first, last);
-  flash(rowClip.blocks.length === 1 ? '1 rivi liitetty.' : rowClip.blocks.length + ' riviä liitetty.');
+  flash(rowClip.blocks.length === 1 ? tr('1 rivi liitetty.') : rowClip.blocks.length + tr(' riviä liitetty.'));
 }
 clipEl.addEventListener('copy', e => {
   if (!selIds.length) return;
   rowClip = {text: clipEl.value, blocks: selIds.map(id => JSON.parse(JSON.stringify(byId(id))))};
-  flash(selIds.length === 1 ? '1 rivi kopioitu.' : selIds.length + ' riviä kopioitu.');
+  flash(selIds.length === 1 ? tr('1 rivi kopioitu.') : selIds.length + tr(' riviä kopioitu.'));
 });
 clipEl.addEventListener('cut', e => {
   if (!selIds.length) return;
@@ -1494,17 +1703,17 @@ function useAnswer(resEl) {
     if (/[\d}.\w]\s*$/.test(before) && !/\\[a-zA-Z]+\s*$/.test(before)) val = '\\cdot ' + val;
     mf.executeCommand(['insert', val, {format: 'latex', focus: true}]);
     mf.dispatchEvent(new Event('input', {bubbles: true}));
-    flash('Vastaus lisätty kaavaan.');
+    flash(tr('Vastaus lisätty kaavaan.'));
   } else {
     const ae = document.activeElement;
     clipEl.value = val; clipEl.focus({preventScroll: true}); clipEl.select();
     let ok = false; try { ok = document.execCommand('copy'); } catch {}
     rowClip = null;
     if (ae && ae !== document.body && ae !== clipEl) ae.focus({preventScroll: true}); else clipEl.blur();
-    const done = () => flash('Vastaus kopioitu. ⌘V liittää sen kaavaan.');
+    const done = () => flash(tr('Vastaus kopioitu. ⌘V liittää sen kaavaan.'));
     if (ok) done();
-    else if (navigator.clipboard) navigator.clipboard.writeText(val).then(done, () => flash('Kopiointi ei onnistunut.'));
-    else flash('Kopiointi ei onnistunut.');
+    else if (navigator.clipboard) navigator.clipboard.writeText(val).then(done, () => flash(tr('Kopiointi ei onnistunut.')));
+    else flash(tr('Kopiointi ei onnistunut.'));
   }
 }
 function selectRange(a, z) {
@@ -1536,7 +1745,7 @@ function removeMany(ids) {
   focusBlock(at.id, false);
   lastRemoved = {items, blank: null};
   if (doc.blocks.length === 1 && isEmpty(doc.blocks[0]) && !items.some(x => x.b === doc.blocks[0])) lastRemoved.blank = doc.blocks[0].id;
-  flash((items.length === 1 ? '1 rivi' : items.length + ' riviä') + ' poistettu. ⌘Z palauttaa.');
+  flash((items.length === 1 ? tr('1 rivi') : items.length + tr(' riviä')) + tr(' poistettu. ⌘Z palauttaa.'));
 }
 function restoreRemoved() {
   const r = lastRemoved; lastRemoved = null;
@@ -1544,7 +1753,7 @@ function restoreRemoved() {
   for (const {i, b} of r.items) doc.blocks.splice(Math.min(i, doc.blocks.length), 0, b);
   render(); touch();
   selectRange(r.items[0].b.id, r.items[r.items.length - 1].b.id);
-  flash('Rivit palautettu.');
+  flash(tr('Rivit palautettu.'));
 }
 let dragY = 0, scrollRaf = 0;
 function autoScroll() {
@@ -1600,16 +1809,16 @@ document.addEventListener('keydown', e => {
   clearSel();
 }, true);
 
-// the browser keeps ⌘T, ⌘⇧T and ⌘N for itself: on the web they are ⌃ (Mac) or Alt (Windows) instead
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-const webAlt = !native && !isMac;
 document.addEventListener('keydown', e => {
   const m = e.metaKey || e.ctrlKey || (webAlt && e.altKey);
   if (!m) return;
   const k = webAlt && e.altKey && /^Key/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
   const map = {enter: 'calc', e: 'addMath', t: 'addText', g: 'addGraph', l: 'approx', r: 'solve', d: 'diff', b: 'bold'};
-  if (!native) Object.assign(map, {s: 'save', o: 'open', p: 'print', n: 'new'});
+  // the Mac app's menus already send ⌘J, ⌘⇧F and ⌘⇧C (the page leaves them alone there, so they run once)
+  if (!native) Object.assign(map, {s: 'save', o: 'open', p: 'print', n: 'new', j: 'steps'});
   if (e.shiftKey && k === 's' && !native) { e.preventDefault(); return commands.saveAs(); }
+  if (e.shiftKey && k === 'f' && !native) { e.preventDefault(); e.stopPropagation(); return commands.search(); }
+  if (e.shiftKey && k === 'c' && !native) { e.preventDefault(); e.stopPropagation(); return commands.shot(); }
   if (e.shiftKey && k === 'i') { e.preventDefault(); return commands.addImage(); }
   if (e.shiftKey && k === 'p') { e.preventDefault(); return commands.addDraw(); }
   if (e.shiftKey && k === 't') { e.preventDefault(); return commands.addTable(); }
@@ -1627,12 +1836,19 @@ document.addEventListener('click', e => {
 });
 
 buildPalette();
-if (!native) for (const b of document.querySelectorAll('[title]')) b.title = b.title.replace(/⌘(⇧?)([TN])\b/g, (_, sh, c) => isMac ? '⌃' + sh + c : 'Alt+' + (sh ? 'Shift+' : '') + c);
+for (const el of ['#toolbar', '#tables', '#palette']) Kieli.dom($(el));
+$('#langbtn span').textContent = Kieli.lang.toUpperCase();
+$('#title').placeholder = tr('Nimetön');
+if (native) post({cmd: 'lang', lang: Kieli.lang});
+if (!native) for (const b of document.querySelectorAll('[title]')) b.title = kb(b.title);
+if (native) $('#osbtn').remove(); else $('#osbtn').textContent = isMac ? 'Mac' : 'Windows';
 if (native) { doc = blank(); render(); post({cmd: 'ready'}); }
 else {
-  let saved = null; try { saved = localStorage.getItem('laskuvihko'); } catch {}
-  doc = blank(); render();
-  if (saved) load(saved); else focusBlock(doc.blocks[0].id);
+  doc = blank(); render(); focusBlock(doc.blocks[0].id);
+  Store.get().then(saved => {
+    if (saved) load(saved);
+    if (fsa) WebFS.start(!!saved);
+  });
   $('#palette').classList.add('show'); $('[data-cmd=palette]').classList.add('on');
 }
 
@@ -1640,9 +1856,9 @@ try { if (localStorage.getItem('files')) commands.files(); } catch {}
 // taulukkopaneeli: sulku-nappi, leveys vetämällä (muistetaan)
 { const t = $('#tables');
   t.querySelector('[data-tcmd=close]').onclick = () => commands.tables();
-  // pienennys: sivu piirretään leveämmäksi ja skaalataan, jolloin puolikkaassa ikkunassa näkyy enemmän
-  let z = .8; try { z = +localStorage.getItem('tablesZ') || .8; } catch {}
-  const setZ = v => { z = Math.round(Math.max(.5, Math.min(1.2, v)) * 10) / 10; t.querySelector('iframe').style.setProperty('--z', z); t.querySelector('.tzoom').textContent = Math.round(z * 100) + ' %'; try { localStorage.setItem('tablesZ', z); } catch {} };
+  // tekstin koko −/+ (muistetaan)
+  let z = 1; try { z = +localStorage.getItem('kvZ') || 1; } catch {}
+  const setZ = v => { z = Math.round(Math.max(.7, Math.min(1.6, v)) * 10) / 10; t.style.setProperty('--kz', z); try { localStorage.setItem('kvZ', z); } catch {} };
   setZ(z);
   t.querySelector('[data-tcmd=zout]').onclick = () => setZ(z - .1);
   t.querySelector('[data-tcmd=zin]').onclick = () => setZ(z + .1);
