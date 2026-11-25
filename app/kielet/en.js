@@ -125,6 +125,8 @@ Kieli.add('en', {
   'Iso puoli': 'Large side', 'Kulma tai kaari toiselle puolelle (yli 180°)': 'Angle or arc on the other side (over 180°)',
   'Kyljet': 'Arms', 'Kulman kyljet näkyviin. Pois: pelkkä kulmakaari, esim. valmiiden viivojen väliin': 'Show the arms of the angle. Off: only the arc mark, e.g. between lines that are already there',
   'Sektori': 'Sector', 'Kaaresta sektori: säteet keskipisteeseen': 'Turn the arc into a sector: radii to the centre',
+  'Alaindeksi: kirjoita esim. T_x tai F_{μs}': 'Subscript: type e.g. T_x or F_{μs}',
+  'Kuva': 'Picture', 'Lisää kuva piirrokseen, niin voit piirtää sen päälle (myös ⌘V tai vetämällä)': 'Add a picture to the drawing so you can draw on it (also ⌘V or drag and drop)',
   'Monista': 'Duplicate', 'Monista valittu kuvio': 'Duplicate the selected shape', 'Mitat laskuun': 'Use in calculation',
   'Tee mitoista laskurivit (a:=5 m, α:=37°), niin voit laskea niillä. Valittu kuvio tai koko piirros': 'Turn the measurements into calculation rows (a:=5 m, α:=37°) so you can calculate with them. The selected shape or the whole drawing',
   'Poista': 'Delete', 'Poista valittu kuvio (⌫)': 'Delete the selected shape (⌫)', 'Kumoa (⌘Z)': 'Undo (⌘Z)', 'Tee uudelleen (⌘⇧Z)': 'Redo (⌘⇧Z)',

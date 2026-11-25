@@ -1447,9 +1447,11 @@ const Calc = (() => {
     // letters with a letter subscript (α_r is alphar inside): show α_r again
     const G = 'alpha|beta|gamma|delta|varepsilon|epsilon|zeta|eta|vartheta|theta|kappa|lambda|mu|nu|xi|rho|sigma|tau|varphi|phi|chi|psi|omega';
     const vsub = {};
-    for (const m of latex.matchAll(new RegExp('(\\\\(?:' + G + ')(?![a-zA-Z])|(?<![\\\\a-zA-Z])[a-zA-Z])_(?:\\{([a-zA-Z0-9]+)\\}|([a-zA-Z0-9]))', 'g'))) {
-      const sub = m[2] || m[3]; if (!/[a-zA-Z]/.test(sub)) continue;
-      vsub[(m[1] === 'E' ? 'Evar' : m[1].replace('\\', '')) + sub] = [m[1].replace('\\', ''), sub];
+    // the subscript may be Greek too: F_\mu or F_{\mu s} (Fmu, Fmus inside); Finnish letters too: T_{ylhäällä}
+    const GS = '\\\\(?:' + G + ')(?![a-zA-Z])\\s*';
+    for (const m of latex.matchAll(new RegExp('(\\\\(?:' + G + ')(?![a-zA-Z])|(?<![\\\\a-zA-Z])[a-zA-Z])_(?:\\{\\s*((?:' + GS + '|[a-zA-Z0-9äöåÄÖÅ])+)\\}|(' + GS + '|[a-zA-Z0-9]))', 'g'))) {
+      const sub = (m[2] || m[3]).trim(); if (!/[a-zA-Z]/.test(sub)) continue;
+      vsub[(m[1] === 'E' ? 'Evar' : m[1].replace('\\', '')) + sub.replace(/[\\\säöåÄÖÅ]/g, '')] = [m[1].replace('\\', ''), sub];   // ä, ö, å drop out of the inside name (T_{ylhäällä} is Tylhll)
     }
     for (const n of Object.keys(vsub).sort((a, b) => b.length - a.length)) {
       const [base, sub] = vsub[n];

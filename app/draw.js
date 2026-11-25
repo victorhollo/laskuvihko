@@ -43,7 +43,27 @@ const len = v => Math.hypot(v[0], v[1]);
 const dist = (a, b) => len(sub(a, b));
 const unit = v => { const l = len(v) || 1; return [v[0] / l, v[1] / l]; };
 const fmtNum = n => String(Math.round(n * 100) / 100).replace('.', Kieli.pilkku ? ',' : '.').replace('-', '−');
-const pretty = s => s.replace(/\^2/g, '²').replace(/\^3/g, '³').replace(/sqrt\(([^)]*)\)/g, '√$1').replace(/\balpha\b/g, 'α').replace(/\bbeta\b/g, 'β').replace(/\bgamma\b/g, 'γ');
+// kreikkalaiset kirjaimet nimellä: alpha → α, Delta → Δ, F_mu → F_μ (myös \\alpha)
+const GR = {alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', phi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω'};
+const GR_RE = new RegExp('\\\\?(?<![A-Za-z])(' + Object.keys(GR).join('|') + ')(?![A-Za-z])', 'g');
+const pretty = s => s.replace(/\^2(?![0-9])/g, '²').replace(/\^3(?![0-9])/g, '³').replace(/sqrt\(([^)]*)\)/g, '√$1').replace(GR_RE, (_, n) => GR[n]);
+// teksti SVG:hen niin, että _x tai _{ab} on alaindeksi ja ^x tai ^{ab} yläindeksi
+function richText(t, str) {
+  t.textContent = '';
+  const re = /([_^])(?:\{([^{}]*)\}|(.))/gu; let last = 0, m;
+  const span = (txt, attrs) => { const sp = document.createElementNS(NS, 'tspan'); for (const k in attrs) sp.setAttribute(k, attrs[k]); sp.textContent = txt; t.appendChild(sp); };
+  // pos = missä korkeudella ollaan; dy lasketaan pienen fontin em-yksikköinä (70 %)
+  let pos = null;
+  const BACK = {sub: '-0.21em', sup: '0.315em'}, TO = {null: {sub: '0.3em', sup: '-0.45em'}, sub: {sub: '0', sup: '-0.75em'}, sup: {sub: '0.75em', sup: '0'}};
+  while ((m = re.exec(str))) {
+    if (m.index > last) { span(str.slice(last, m.index), pos ? {dy: BACK[pos]} : {}); pos = null; }
+    const k = m[1] === '_' ? 'sub' : 'sup';
+    span(m[2] ?? m[3], {dy: TO[pos][k], 'font-size': '70%'});
+    pos = k; last = re.lastIndex;
+  }
+  if (last < str.length || pos) span(str.slice(last) || '\u200b', pos ? {dy: BACK[pos]} : {});
+}
 
 function el(tag, attrs, parent) {
   const e = document.createElementNS(NS, tag);
@@ -55,7 +75,7 @@ function el(tag, attrs, parent) {
 class Drawing {
   constructor(box, b, onChange) {
     this.box = box; this.b = b; this.onChange = onChange;
-    Object.assign(this, {view: {z: 1, x: 0, y: 0}, tool: 'select', sel: null, act: null, pending: null, mouse: null, undo: [], redo: []});
+    Object.assign(this, {view: {z: this.b.z0 || 1, x: this.b.ox || 0, y: this.b.oy || 0}, tool: 'select', sel: null, act: null, pending: null, mouse: null, undo: [], redo: []});
     this.style = {c: DRAW_COLORS[0], w: 2, dash: false, fill: false, len: true, ang: false, names: false, rad: true, meas: false, big: false, sector: false, arms: true};
     this.buildUI();
     this.render();
@@ -98,6 +118,10 @@ class Drawing {
     }
     const acts = document.createElement('div'); acts.className = 'dgroup';
     const actBtn = (t, tip, fn) => { const btn = document.createElement('button'); btn.innerHTML = t; btn.title = tip; btn.onclick = fn; acts.appendChild(btn); return btn; };
+    actBtn(tr('Kuva'), tr('Lisää kuva piirrokseen, niin voit piirtää sen päälle (myös ⌘V tai vetämällä)'), () => {
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+      inp.onchange = () => inp.files[0] && this.addImageFile(inp.files[0]); inp.click();
+    });
     this.dupBtn = actBtn(tr('Monista'), tr('Monista valittu kuvio'), () => this.duplicate());
     actBtn(tr('Mitat laskuun'), tr('Tee mitoista laskurivit (a:=5 m, α:=37°), niin voit laskea niillä. Valittu kuvio tai koko piirros'), () => this.exportMeasures());
     this.delBtn = actBtn(tr('Poista'), tr('Poista valittu kuvio (⌫)'), () => this.deleteSel());
@@ -117,7 +141,7 @@ class Drawing {
     const zoom = document.createElement('div'); zoom.className = 'dgroup dzoom';
     const zb = (t, tip, fn) => { const btn = document.createElement('button'); btn.textContent = t; btn.title = tip; btn.onclick = () => { fn(); this.box.focus({preventScroll: true}); }; zoom.appendChild(btn); return btn; };
     zb('−', tr('Loitonna (−)'), () => this.zoomBy(1 / 1.4));
-    this.zoomLabel = zb('100 %', tr('Koko piirros näkyviin (0)'), () => this.zoomTo(1));
+    this.zoomLabel = zb('100 %', tr('Koko piirros näkyviin (0)'), () => this.fit());
     zb('+', kb(tr('Lähennä (+). Myös nipistys ohjauslevyllä tai ⌘ + vieritys')), () => this.zoomBy(1.4));
     page.append(grid, snap, lab);
     bar.appendChild(zoom);
@@ -150,7 +174,7 @@ class Drawing {
     // zoom: pinch on the trackpad (WebKit gesture or ctrl+wheel), ⌘ + scroll; when zoomed in, scrolling moves the picture
     this.svg.addEventListener('wheel', e => {
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); return this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? .01 : .003)), e); }
-      if (this.view.z <= 1) return;
+      if (this.view.z <= (this.b.z0 || 1)) return;
       const k = DRAW_W / this.view.z / this.svg.getBoundingClientRect().width, v = this.view, x = v.x, y = v.y;
       v.x += e.deltaX * k; v.y += e.deltaY * k; this.setView();
       if (v.x !== x || v.y !== y) e.preventDefault();   // at the edge the page scrolls on
@@ -189,20 +213,39 @@ class Drawing {
   }
 
   // ---------- zoom ----------
+  // the paper: what shows at rest. Zooming out (below 100 %) shows grid around it; drawing there makes the paper grow
+  paper() { const z0 = this.b.z0 || 1; return {x: this.b.ox || 0, y: this.b.oy || 0, w: DRAW_W / z0, h: this.b.h / z0}; }
   setView() {
-    const v = this.view, w = DRAW_W / v.z, h = this.b.h / v.z;
-    v.x = Math.max(0, Math.min(DRAW_W - w, v.x)); v.y = Math.max(0, Math.min(this.b.h - h, v.y));
+    const v = this.view, w = DRAW_W / v.z, h = this.b.h / v.z, P = this.paper();
+    const cl = (a, lo, len, l) => Math.max(Math.min(lo, lo + len - l), Math.min(Math.max(lo, lo + len - l), a));
+    v.x = cl(v.x, P.x, P.w, w); v.y = cl(v.y, P.y, P.h, h);
     this.svg.setAttribute('viewBox', `${v.x} ${v.y} ${w} ${h}`);
     if (this.zoomLabel) this.zoomLabel.textContent = Math.round(v.z * 100) + ' %';
-    if (this.svg) this.svg.classList.toggle('zoomed', v.z > 1);
+    if (this.svg) this.svg.classList.toggle('zoomed', v.z > (this.b.z0 || 1));
+    if (this.drawn && (Math.abs(this.drawn.z - v.z) > 1e-9 || this.drawn.x !== v.x || this.drawn.y !== v.y) && v.z < (this.b.z0 || 1)) this.render();
   }
+  fit() { const P = this.paper(); Object.assign(this.view, {z: this.b.z0 || 1, x: P.x, y: P.y}); this.setView(); this.closeEditor(); if (this.svg) this.render(); }
   zoomTo(z, e) {
-    const v = this.view; z = Math.max(1, Math.min(8, z));
+    const v = this.view; z = Math.max(Math.min(.4, (this.b.z0 || 1) * .6), Math.min(8, z));
     const r = this.svg.getBoundingClientRect();
     const sx = e ? (e.clientX - r.left) / r.width : .5, sy = e ? (e.clientY - r.top) / r.height : .5;
     const px = v.x + sx * DRAW_W / v.z, py = v.y + sy * this.b.h / v.z;   // this point stays under the pointer
     v.z = z; v.x = px - sx * DRAW_W / z; v.y = py - sy * this.b.h / z;
     this.setView(); this.closeEditor();
+  }
+  // something drawn past the edge of the paper: make the paper bigger (same shape) so it fits
+  grow() {
+    const gs = this.svg.querySelectorAll('[data-i]'); if (!gs.length) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const g of gs) { const bb = g.getBBox(); if (!bb.width && !bb.height) continue; x0 = Math.min(x0, bb.x); y0 = Math.min(y0, bb.y); x1 = Math.max(x1, bb.x + bb.width); y1 = Math.max(y1, bb.y + bb.height); }
+    const P = this.paper(), m = 15;
+    if (!(x0 < P.x || y0 < P.y || x1 > P.x + P.w || y1 > P.y + P.h)) return;
+    let nx = Math.min(P.x, x0 - m), ny = Math.min(P.y, y0 - m), nw = Math.max(P.x + P.w, x1 + m) - nx, nh = Math.max(P.y + P.h, y1 + m) - ny;
+    const a = DRAW_W / this.b.h;
+    if (nw / nh < a) { const w2 = nh * a; nx -= (w2 - nw) / 2; nw = w2; } else { const h2 = nw / a; ny -= (h2 - nh) / 2; nh = h2; }
+    const r = q => Math.round(q * 100) / 100;
+    this.b.z0 = r(DRAW_W / nw); this.b.ox = r(nx); this.b.oy = r(ny);
+    this.setView(); this.render();
   }
   zoomBy(f, e) { this.zoomTo(this.view.z * f, e); }
 
@@ -210,7 +253,7 @@ class Drawing {
   save() { this.undo.push(JSON.stringify(this.b.shapes)); if (this.undo.length > 80) this.undo.shift(); this.redo = []; }
   doUndo() { if (!this.undo.length) return; this.redo.push(JSON.stringify(this.b.shapes)); this.b.shapes = JSON.parse(this.undo.pop()); this.sel = null; this.changed(); }
   doRedo() { if (!this.redo.length) return; this.undo.push(JSON.stringify(this.b.shapes)); this.b.shapes = JSON.parse(this.redo.pop()); this.sel = null; this.changed(); }
-  changed() { this.render(); this.syncBar(); this.onChange(); }
+  changed() { this.render(); this.grow(); this.syncBar(); this.onChange(); }
 
   // ---------- geometry helpers ----------
   pt(e) {
@@ -221,7 +264,7 @@ class Drawing {
   snapPt(p, skip, e, free) {
     if (e && e.altKey) return [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
     let best = null, bd = 9;
-    this.b.shapes.forEach((s, i) => { if (i === skip || s.t === 'pen' || s.t === 'text') return; for (const q of this.corners(s)) { const d = dist(p, q); if (d < bd) { bd = d; best = q; } } });
+    this.b.shapes.forEach((s, i) => { if (i === skip || s.t === 'pen' || s.t === 'text' || s.t === 'img') return; for (const q of this.corners(s)) { const d = dist(p, q); if (d < bd) { bd = d; best = q; } } });
     if (best) return [best[0], best[1]];
     if (this.b.snap && !free) return [Math.round(p[0] / STEP) * STEP, Math.round(p[1] / STEP) * STEP];
     return [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
@@ -288,6 +331,21 @@ class Drawing {
     if (t === 'dim' || t === 'angle') s.txt = [];
     return s;
   }
+  // a picture goes behind the drawing so you can draw on top of it; it is shrunk to keep the file small
+  async addImageFile(file) {
+    let src; try { src = await readImage(file); } catch { return flash(tr('Kuvaa ei voitu avata')); }
+    const im = new Image();
+    im.onload = () => {
+      const k = Math.min(1, 1000 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+      const ar = c.width / c.height, H = this.b.h;
+      let w = Math.min(DRAW_W * .6, (H - 40) * ar); const h = w / ar, x = (DRAW_W - w) / 2, y = (H - h) / 2;
+      const s = {t: 'img', pts: [[x, y], [x + w, y + h]], ar, src: c.toDataURL('image/jpeg', .85), c: this.style.c, w: this.style.w};
+      this.save(); this.b.shapes.unshift(s); this.sel = 0; this.setTool('select'); this.changed();
+    };
+    im.src = src;
+  }
   commit(s) { this.fixArc(s); this.save(); this.b.shapes.push(s); this.sel = this.b.shapes.length - 1; this.changed(); }
 
   // ---------- mouse ----------
@@ -304,8 +362,11 @@ class Drawing {
     if (t === 'select') {
       const h = e.target.closest('[data-h]'), g = e.target.closest('[data-i]');
       if (h && this.sel !== null) { this.act = {kind: 'vertex', k: +h.dataset.h, saved: false}; return; }
+      // dragging a label (length, angle, name…) moves only the label
+      const lab = e.target.closest('[data-lab]');
+      if (lab && g) { this.sel = +g.dataset.i; const key = lab.dataset.lab.split(':').slice(1).join(':'), s = this.b.shapes[this.sel]; this.act = {kind: 'labmove', key, from: raw, o0: (s.lo && s.lo[key]) || [0, 0], saved: false}; this.render(); this.syncBar(); return; }
       if (g) { this.sel = +g.dataset.i; this.act = {kind: 'move', from: raw, orig: JSON.stringify(this.b.shapes[this.sel].pts), saved: false}; }
-      else { this.sel = null; if (this.view.z > 1) this.act = {kind: 'pan', cx: e.clientX, cy: e.clientY, v: {...this.view}}; }
+      else { this.sel = null; if (this.view.z > (this.b.z0 || 1)) this.act = {kind: 'pan', cx: e.clientX, cy: e.clientY, v: {...this.view}}; }
       this.render(); this.syncBar(); return;
     }
     if (t === 'erase') { this.act = {kind: 'erase', saved: false}; this.eraseAt(e); return; }
@@ -339,6 +400,13 @@ class Drawing {
       const k = DRAW_W / this.view.z / this.svg.getBoundingClientRect().width;
       this.view.x = a.v.x - (e.clientX - a.cx) * k; this.view.y = a.v.y - (e.clientY - a.cy) * k; return this.setView();
     }
+    if (a.kind === 'labmove') {
+      const s = this.b.shapes[this.sel], dx = raw[0] - a.from[0], dy = raw[1] - a.from[1];
+      if (!s || (!a.saved && Math.hypot(dx, dy) < 2)) return;
+      if (!a.saved) { this.save(); a.saved = true; }
+      s.lo = s.lo || {}; s.lo[a.key] = [Math.round(a.o0[0] + dx), Math.round(a.o0[1] + dy)];
+      return this.render();
+    }
     if (a.kind === 'move') {
       if (!a.saved) { this.save(); a.saved = true; }
       let dx = raw[0] - a.from[0], dy = raw[1] - a.from[1];
@@ -350,6 +418,11 @@ class Drawing {
       const other = s.pts.length === 2 ? s.pts[1 - a.k] : null;
       const free = (s.t === 'angle' && a.k !== 1) || (s.t === 'arc' && a.k === 2);
       const q = this.snapPt(raw, this.sel, e, free);
+      if (s.t === 'img') {
+        const o = s.pts[1 - a.k], w = Math.max(20, Math.abs(raw[0] - o[0])), sx = Math.sign(raw[0] - o[0]) || 1, sy = Math.sign(raw[1] - o[1]) || 1;
+        s.pts[a.k] = [o[0] + sx * w, o[1] + sy * w / s.ar];
+        return this.render();
+      }
       s.pts[a.k] = other && s.t !== 'circle' && s.t !== 'ellipse' ? this.constrain(other, q, e) : (s.t === 'angle' && a.k !== 1) || (s.t === 'arc' && a.k) ? this.constrain(s.pts[s.t === 'arc' ? 0 : 1], q, e) : q;
       this.fixArc(s);
     } else if (a.kind === 'draw') {
@@ -449,7 +522,7 @@ class Drawing {
     if (e.key === 'Enter') { stop(); return insertAfter(this.box.closest('.block').dataset.id, mk('math')); }
     if (e.key === '+' || e.key === '=') { stop(); return this.zoomBy(1.4); }
     if (e.key === '-') { stop(); return this.zoomBy(1 / 1.4); }
-    if (e.key === '0') { stop(); return this.zoomTo(1); }
+    if (e.key === '0') { stop(); return this.fit(); }
     if (e.key === ' ') { stop(); this.space = true; this.svg.classList.add('panning'); return; }
     if (KEYS[k] && !e.shiftKey && !e.altKey) { stop(); this.setTool(KEYS[k]); }
   }
@@ -471,12 +544,23 @@ class Drawing {
     inp.style.left = (s.x - r.left) + 'px'; inp.style.top = (s.y - r.top) + 'px';
     let finished = false;
     const opened = Date.now();
-    const end = ok => { if (finished) return; finished = true; inp.remove(); this.editor = null; this.endEditor = null; if (ok) done(inp.value); };
+    const end = ok => { if (finished) return; finished = true; inp.remove(); if (inp._pad) inp._pad.remove(); this.editor = null; this.endEditor = null; if (ok) done(inp.value); };
     inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); end(true); this.box.focus({preventScroll: true}); } if (e.key === 'Escape') { e.preventDefault(); end(false); this.box.focus({preventScroll: true}); } });
     inp.addEventListener('pointerdown', e => e.stopPropagation());
     // a click right after opening may steal the focus: take it back; later, leaving the box saves it
     inp.addEventListener('blur', () => { if (finished) return; if (Date.now() - opened < 400) setTimeout(() => !finished && inp.focus()); else end(true); });
-    this.wrap.appendChild(inp); this.editor = inp; this.endEditor = end;
+    // kreikkalaiset kirjaimet ja alaindeksi napeilla tekstikentän alla
+    const pad = document.createElement('div'); pad.className = 'dgreek ' + (cls || '');
+    pad.style.left = inp.style.left; pad.style.top = (s.y - r.top + 18) + 'px';
+    const put = txt => { const a = inp.selectionStart, b = inp.selectionEnd; inp.setRangeText(txt, a, b, 'end'); if (txt === '_{}') inp.setSelectionRange(a + 2, a + 2); inp.focus(); };
+    for (const [txt, tip] of [['_{}', tr('Alaindeksi: kirjoita esim. T_x tai F_{μs}')], ...'αβγδεθλμνπρστφωΔΣΩ'.split('').map(c => [c, c])]) {
+      const btn = document.createElement('button'); btn.type = 'button'; btn.title = tip;
+      btn.innerHTML = txt === '_{}' ? 'x<sub>₁</sub>' : txt;
+      btn.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); put(txt); });
+      pad.appendChild(btn);
+    }
+    inp._pad = pad;
+    this.wrap.append(inp, pad); this.editor = inp; this.endEditor = end;
     inp.focus(); inp.select();
   }
   closeEditor() { if (this.endEditor) this.endEditor(true); }
@@ -511,11 +595,15 @@ class Drawing {
   render() {
     const svg = this.svg, b = this.b, W = DRAW_W, H = b.h;
     svg.textContent = '';
-    el('rect', {x: 0, y: 0, width: W, height: H, fill: '#fff'}, svg);
+    // paint the paper, or the whole visible area when zoomed out past it
+    const v = this.view, P = this.paper(), vw = W / v.z, vh = H / v.z;
+    const X0 = Math.min(P.x, v.x), Y0 = Math.min(P.y, v.y), X1 = Math.max(P.x + P.w, v.x + vw), Y1 = Math.max(P.y + P.h, v.y + vh);
+    this.drawn = {z: v.z, x: v.x, y: v.y};
+    el('rect', {x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: '#fff'}, svg);
     if (b.grid) {
       let d = '';
-      for (let x = STEP; x < W; x += STEP) d += `M${x} 0V${H}`;
-      for (let y = STEP; y < H; y += STEP) d += `M0 ${y}H${W}`;
+      for (let x = Math.ceil(X0 / STEP) * STEP; x < X1; x += STEP) if (x !== X0) d += `M${x} ${Y0}V${Y1}`;
+      for (let y = Math.ceil(Y0 / STEP) * STEP; y < Y1; y += STEP) if (y !== Y0) d += `M${X0} ${y}H${X1}`;
       el('path', {d, stroke: '#cfd8e3', 'stroke-width': .6, fill: 'none'}, svg);
     }
     this.meas = [];
@@ -542,9 +630,12 @@ class Drawing {
 
   label(g, p, text, attrs) {
     const ghost = text === ' ';
+    // a label the user dragged elsewhere keeps its offset (s.lo['l:0'] = [dx, dy]), so it follows the shape
+    const dl = attrs && attrs['data-lab'];
+    if (dl) { const [i, ...rest] = dl.split(':'), s = this.b.shapes[+i], o = s && s.lo && s.lo[rest.join(':')]; if (o) p = [p[0] + o[0], p[1] + o[1]]; }
     const t = el('text', Object.assign({x: p[0], y: p[1], 'text-anchor': 'middle', 'dominant-baseline': 'central', class: 'dlabel'}, attrs), g);
     if (ghost) t.setAttribute('class', t.getAttribute('class') + ' ghost');
-    t.textContent = ghost ? '·' : text;
+    if (ghost) t.textContent = '·'; else richText(t, text);
     return t;
   }
   sideLabel(g, s, i, k, a, b, outFrom, letter) {
@@ -715,9 +806,12 @@ class Drawing {
       if (s.len) this.label(g, [O[0] - 8, O[1] + 14], '0', Object.assign({'text-anchor': 'end'}, small));
       this.label(g, [x1 - 4, O[1] - 15], (s.txt && s.txt[0]) || 'x', {fill: s.c, 'data-lab': `${i}:l:0`, 'data-auto': 'x', class: 'dlabel name'});
       this.label(g, [O[0] + 14, y0 + 6], (s.txt && s.txt[1]) || 'y', {fill: s.c, 'data-lab': `${i}:l:1`, 'data-auto': 'y', 'text-anchor': 'start', class: 'dlabel name'});
+    } else if (s.t === 'img') {
+      const x = Math.min(P[0][0], P[1][0]), y = Math.min(P[0][1], P[1][1]);
+      el('image', {href: s.src, x, y, width: Math.abs(P[1][0] - P[0][0]), height: Math.abs(P[1][1] - P[0][1]), preserveAspectRatio: 'none', 'pointer-events': 'all'}, g);
     } else if (s.t === 'text') {
       const t = el('text', {x: P[0][0], y: P[0][1], fill: s.c, 'font-size': 10 + s.w * 4, 'dominant-baseline': 'central', class: 'dtext', 'pointer-events': 'all'}, g);
-      t.textContent = s.s;
+      richText(t, s.s);
     } else if (s.t === 'point') {
       el('circle', {cx: P[0][0], cy: P[0][1], r: 2.5 + s.w * .6, fill: s.c}, g);
       el('circle', {cx: P[0][0], cy: P[0][1], r: 9, fill: 'transparent', 'pointer-events': 'all'}, g);

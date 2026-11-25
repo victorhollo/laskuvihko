@@ -114,9 +114,13 @@ function readImage(file) {
     im.src = url;
   });
 }
-async function addImages(files, afterId) {
+// a picture pasted or dropped on a drawing goes into that drawing
+const drawAt = node => { const box = node && node.closest && node.closest('.drawbox'); return box && box.parentElement && box.parentElement._draw; };
+async function addImages(files, afterId, target) {
   files = [...files].filter(isImg);
   if (!files.length) return false;
+  const dr = afterId === undefined && drawAt(target || document.activeElement);
+  if (dr) { for (const f of files) await dr.addImageFile(f); return true; }
   let prev = afterId !== undefined ? afterId : activeId, last = null, failed = 0;
   const cur = prev && byId(prev);
   for (const f of files) {
@@ -145,6 +149,7 @@ document.addEventListener('drop', e => {
   if (!files.some(isImg)) return;  // e.g. a notebook file: the Mac app opens it
   e.preventDefault();
   const over = e.target.closest && e.target.closest('.block');
+  if (drawAt(e.target)) return addImages(files, undefined, e.target);
   addImages(files, over ? over.dataset.id : (doc.blocks.length ? doc.blocks[doc.blocks.length - 1].id : null));
 });
 
@@ -560,7 +565,7 @@ function showResult(el, b) {
     vs.appendChild(lab);
     for (const v of b.vars) {
       const btn = document.createElement('button');
-      btn.textContent = (TEXSYM[v.replace(/\d+$/, '')] || v.replace(/\d+$/, '')) + v.replace(/^\D+/, '').replace(/\d/g, d => '₀₁₂₃₄₅₆₇₈₉'[d]); if (b.vsub && b.vsub[v]) btn.innerHTML = (TEXSYM[b.vsub[v][0]] || b.vsub[v][0]) + '<sub>' + b.vsub[v][1] + '</sub>'; btn.className = v === b.v ? 'on' : '';
+      btn.textContent = (TEXSYM[v.replace(/\d+$/, '')] || v.replace(/\d+$/, '')) + v.replace(/^\D+/, '').replace(/\d/g, d => '₀₁₂₃₄₅₆₇₈₉'[d]); if (b.vsub && b.vsub[v]) btn.innerHTML = (TEXSYM[b.vsub[v][0]] || b.vsub[v][0]) + '<sub>' + b.vsub[v][1].replace(/\\([a-zA-Z]+)\s*/g, (w, g) => TEXSYM[g] || g) + '</sub>'; btn.className = v === b.v ? 'on' : '';
       btn.addEventListener('mousedown', e => e.preventDefault());
       btn.onclick = () => { b.v = v; calc(b.act || 'solve', b); };
       vs.appendChild(btn);
