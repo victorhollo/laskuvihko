@@ -103,6 +103,18 @@ const Calc = (() => {
         const inner = out.slice(st, k); if (!inner.includes(';') && inner.includes('{,}') && !inner.replace(/\{,\}/g, '').includes(',')) out = out.slice(0, st) + inner.replace(/\{,\}/g, ',') + out.slice(k); }
       return out; })();
     if (opts.units) latex = latex.replace(/[º˚]/g, '°');
+    // lihavoitu yksikkö voi tulla muodossa \bm{…} tai \boldsymbol{…}, ja yhteen ryhmään voi kirjoittaa
+    // monta yksikköä: \operatorname{\bm{N\cdot m^2}} → (\operatorname{\mathbf{N}}\cdot\operatorname{\mathbf{m}}^2)
+    if (opts.units) {
+      latex = latex.replace(/\\(?:bm|boldsymbol)\s*\{/g, '\\mathbf{');
+      const OPS = /(\\cdot|·|\\times|\^\{[^{}]*\}|\^-?\d|\/)/;
+      // ryhmän perään kirjoitettu potenssi näkyy viimeisen yksikön päällä (N·m²), joten se kuuluu sille
+      const splitU = (c, pw) => {
+        if (!/\\cdot|·|\\times|\^|\//.test(c) || lookupUnit(unitName(c))) return null;
+        return '(' + c.split(OPS).map(p => !p.trim() ? '' : OPS.test(p) && p.match(OPS)[0] === p ? (p === '·' ? '\\cdot ' : p) : '\\operatorname{\\mathbf{' + p.trim() + '}}').join('') + (pw || '') + ')';
+      };
+      latex = latex.replace(/(?:\\(?:operatorname|mathrm|text)\{\s*\\mathbf\{((?:[^{}]|\{[^{}]*\})*)\}\s*\}|\\(?:operatorname|mathrm|text|mathbf)\{((?:[^{}]|\{[^{}]*\})*)\})(\^\{[^{}]*\}|\^-?\d)?/g, (m, a, b, pw) => splitU(a ?? b, pw) ?? m);
+    }
     if (opts.units) latex = latex.replace(/(?:\{\}\^\{?\\circ\}?|\^\{?\\circ\}?|\\degree|°)\s*\\(?:mathrm|operatorname)\{(?:\\mathbf\{([CF])\}|([CF]))\}/g, (_, a, b) => '\\mathrm{°' + (a || b) + '}');
     const s = latex.replace(/\\placeholder\{[^}]*\}/g, () => { throw new Err('Kaavassa on tyhjä kohta.'); });
     let i = 0;
@@ -131,6 +143,8 @@ const Calc = (() => {
         while (i < s.length) {
           if (/[0-9.]/.test(s[i])) n += s[i++];
           else if (s.startsWith('{,}', i) && /[0-9]/.test(s[i+3] || '')) { n += '.'; i += 3; }
+          // ohut väli numeroiden välissä ryhmittelee numeroita (6,674 30 tai 12 000), ei ole kertolasku
+          else if (s.startsWith('\\,', i) && /[0-9]/.test(n.slice(-1)) && /[0-9]/.test(s[i+2] || '')) i += 2;
           else if (s[i] === ',' && /[0-9]/.test(n.slice(-1)) && /[0-9]/.test(s[i+1] || '') && !opts.commaArgs && inArgs() !== 1) { n += '.'; i++; }
           else break;
         }
